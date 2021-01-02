@@ -19,6 +19,8 @@ public class MessageService {
     private String serverHost;
     @Value("${message.server.port}")
     private int serverPort;
+    @Value("${message.finish-key-word}")
+    private String serverFinishKeyWord;
 
     private Boolean isLaunched = false;
     private Boolean isConnected = false;
@@ -27,11 +29,13 @@ public class MessageService {
     private Thread listeningThread;
     private MessageServiceCallback listeningCallbackSuccess;
     private MessageServiceCallback listeningCallbackFailure;
+    private MessageServiceCallback listeningCallbackFinish;
     private volatile ServerSocket serverSocket;
 
     private Thread connectionThread;
     private MessageServiceCallback connectionCallbackSuccess;
     private MessageServiceCallback connectionCallbackFailure;
+    private MessageServiceCallback connectionCallbackFinish;
     private volatile Socket clientSocket;
 
     private Thread messageSenderThread;
@@ -119,7 +123,9 @@ public class MessageService {
 
                 this.listeningCallbackSuccess.handleMessage("");
                 this.clientSocket = serverSocket.accept();
+
                 this.isConnected = true;
+                this.listeningCallbackFinish.handleMessage("");
 
                 this.messageSenderThread = new Thread(new FutureTask<>(getMessageSenderThread()));
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
@@ -140,11 +146,12 @@ public class MessageService {
                 InetAddress inetAddress = InetAddress.getByName(this.serverHost);
                 SocketAddress socketAddress = new InetSocketAddress(inetAddress, this.serverPort);
                 this.clientSocket = new Socket();
-                this.clientSocket.bind(socketAddress);
-                this.clientSocket.connect(socketAddress);
-                this.isConnected = true;
 
                 this.connectionCallbackSuccess.handleMessage("");
+                this.clientSocket.connect(socketAddress);
+
+                this.isConnected = true;
+                this.connectionCallbackFinish.handleMessage("");
 
                 this.messageSenderThread = new Thread(new FutureTask<>(getMessageSenderThread()));
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
@@ -171,9 +178,8 @@ public class MessageService {
                     }
                 }
                 this.messagesForSending.clear();
+                streamSender.println(this.serverFinishKeyWord);
                 streamSender.close();
-                streamReceiver.close();
-                this.clientSocket.close();
 
                 this.messageSenderCallbackSuccess.handleMessage("");
             } catch (Exception e) {
@@ -191,8 +197,15 @@ public class MessageService {
 
                 while (!this.messageSenderThread.isInterrupted()) {
                     temp = streamReceiver.readLine();
+                    if (this.serverFinishKeyWord.equals(temp)) {
+                        break;
+                    }
                     messageReceiveCallback.handleMessage(temp);
                 }
+
+                streamReceiver.close();
+                this.clientSocket.close();
+
                 this.messageReceiverCallbackSuccess.handleMessage("");
             } catch (Exception e) {
                 this.messageReceiverCallbackFailure.handleMessage(e.getMessage());
@@ -230,12 +243,20 @@ public class MessageService {
         this.listeningCallbackFailure = listeningCallbackFailure;
     }
 
+    public void setListeningCallbackFinish(MessageServiceCallback listeningCallbackFinish) {
+        this.listeningCallbackFinish = listeningCallbackFinish;
+    }
+
     public void setConnectionCallbackSuccess(MessageServiceCallback connectionCallbackSuccessFinish) {
         this.connectionCallbackSuccess = connectionCallbackSuccessFinish;
     }
 
     public void setConnectionCallbackFailure(MessageServiceCallback connectionCallbackFailure) {
         this.connectionCallbackFailure = connectionCallbackFailure;
+    }
+
+    public void setConnectionCallbackFinish(MessageServiceCallback connectionCallbackFinish) {
+        this.connectionCallbackFinish = connectionCallbackFinish;
     }
 
     public void setMessageSenderCallbackSuccess(MessageServiceCallback messageSenderCallbackSuccess) {

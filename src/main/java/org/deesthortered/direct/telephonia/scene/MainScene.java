@@ -190,10 +190,14 @@ public class MainScene extends AbstractScene {
                 Platform.runLater(() -> callbackListeningSuccess())));
         this.messageService.setListeningCallbackFailure((message ->
                 Platform.runLater(() -> callbackListeningFailure(message))));
+        this.messageService.setListeningCallbackFinish((message ->
+                Platform.runLater(() -> callbackListeningFinish())));
         this.messageService.setConnectionCallbackSuccess((message ->
                 Platform.runLater(() -> callbackConnectionSuccess())));
         this.messageService.setConnectionCallbackFailure((message ->
                 Platform.runLater(() -> callbackConnectionFailure(message))));
+        this.messageService.setConnectionCallbackFinish((message ->
+                Platform.runLater(() -> callbackConnectionFinish())));
         this.messageService.setMessageSenderCallbackSuccess((message ->
                 Platform.runLater(() -> callbackMessageSenderSuccess())));
         this.messageService.setMessageSenderCallbackFailure((message ->
@@ -228,6 +232,11 @@ public class MainScene extends AbstractScene {
         this.isStarted = false;
     }
 
+    private void callbackListeningFinish() {
+        this.buttonStart.setText("Disconnect");
+        showOnStateLabel("Client has been connected! Now you can to chat.");
+    }
+
     private void callbackConnectionSuccess() {
         this.buttonStart.setDisable(false);
         this.buttonStart.setText("Disconnect");
@@ -249,20 +258,77 @@ public class MainScene extends AbstractScene {
         isStarted = false;
     }
 
+    private void callbackConnectionFinish() {
+        this.buttonStart.setText("Disconnect");
+        showOnStateLabel("You is connected to the server! Now you can to chat.");
+    }
+
     private void callbackMessageSenderSuccess() {
-        this.exceptionService.createPopupInfo("callbackMessageSenderSuccess");
+        showOnStateLabel("Sender stream is closed, receiver is next...");
     }
 
     private void callbackMessageSenderFailure(String message) {
-        this.exceptionService.createPopupInfo("callbackMessageSenderFailure: " + message);
+        this.radioRoleServer.setDisable(false);
+        this.radioRoleClient.setDisable(false);
+        if (this.radioRoleServer.isSelected()) {
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Start server...");
+            this.fieldHost.setText("automatically...");
+            this.fieldPort.setText("automatically...");
+            this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
+        } else {
+            this.fieldHost.setDisable(false);
+            this.fieldPort.setDisable(false);
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Connect");
+        }
+
+        isStarted = false;
+        this.exceptionService.createPopupAlert(new CustomException(
+                "Message error (SenderFailure): " + message
+        ));
     }
 
     private void callbackMessageReceiverSuccess() {
-        this.exceptionService.createPopupInfo("callbackMessageReceiverSuccess");
+        this.radioRoleServer.setDisable(false);
+        this.radioRoleClient.setDisable(false);
+        if (this.radioRoleServer.isSelected()) {
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Start server...");
+            this.fieldHost.setText("automatically...");
+            this.fieldPort.setText("automatically...");
+            this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
+        } else {
+            this.fieldHost.setDisable(false);
+            this.fieldPort.setDisable(false);
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Connect");
+        }
+
+        isStarted = false;
+        showOnStateLabel("Connection is closed. Now you can connect again!");
     }
 
     private void callbackMessageReceiverFailure(String message) {
-        this.exceptionService.createPopupInfo("callbackMessageReceiverFailure: " + message);
+        this.radioRoleServer.setDisable(false);
+        this.radioRoleClient.setDisable(false);
+        if (this.radioRoleServer.isSelected()) {
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Start server...");
+            this.fieldHost.setText("automatically...");
+            this.fieldPort.setText("automatically...");
+            this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
+        } else {
+            this.fieldHost.setDisable(false);
+            this.fieldPort.setDisable(false);
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Connect");
+        }
+
+        isStarted = false;
+        this.exceptionService.createPopupAlert(new CustomException(
+                "Message error (ReceiverFailure): " + message
+        ));
     }
 
     private void callbackMessageReceiveMessage(String message) {
@@ -371,11 +437,11 @@ public class MainScene extends AbstractScene {
         if (message != null && !"".equals(message)) {
             messageService.sendMessage(message);
             fieldMessage.setText("");
-            listMessages.add(message);
+            listMessages.add("You: " + message);
         }
     }
 
-    private void showOnStateLabel(String message) {
+    private synchronized void showOnStateLabel(String message) {
         this.labelStateLine.setText(message == null ? "" : message);
     }
 }
