@@ -18,7 +18,9 @@ import org.deesthortered.direct.telephonia.service.UtilityService;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.SocketException;
 import java.util.ArrayList;
+import java.util.List;
 
 @Component
 public class MainScene extends AbstractScene {
@@ -41,6 +43,11 @@ public class MainScene extends AbstractScene {
     private TextField fieldHost;
     private TextField fieldPort;
     private Button buttonStart;
+
+    private Label labelSummaryInfo;
+    private Label labelSummaryHostAddressesPrefix;
+    private Label labelSummaryHostAddresses;
+
     private ObservableList<String> listMessages;
     private ListView<String> listviewMessages;
     private TextField fieldMessage;
@@ -121,14 +128,22 @@ public class MainScene extends AbstractScene {
         VBox paneServerInfo = new VBox();
         paneServerInfo.getChildren().addAll(labelServerInfo, paneHost, panePort);
 
-        buttonStart = new Button("Connect...");
+        buttonStart = new Button("Connect");
         buttonStart.setOnAction(this::handle);
+
+        // Summary info
+        labelSummaryInfo = new Label("Summary");
+        labelSummaryHostAddressesPrefix = new Label("Host addresses:");
+        labelSummaryHostAddresses = new Label("Start the server to see addresses.");
+        VBox paneSummaryInfo = new VBox();
+        paneSummaryInfo.getChildren().addAll(labelSummaryInfo, labelSummaryHostAddressesPrefix, labelSummaryHostAddresses);
 
         VBox panePropertyPanel = new VBox();
         panePropertyPanel.getChildren().add(labelHello);
         panePropertyPanel.getChildren().add(paneChooseRole);
         panePropertyPanel.getChildren().add(paneServerInfo);
         panePropertyPanel.getChildren().add(buttonStart);
+        panePropertyPanel.getChildren().add(paneSummaryInfo);
 
         return panePropertyPanel;
     }
@@ -175,8 +190,10 @@ public class MainScene extends AbstractScene {
                 Platform.runLater(() -> callbackListeningSuccess())));
         this.messageService.setListeningCallbackFailure((message ->
                 Platform.runLater(() -> callbackListeningFailure(message))));
-        this.messageService.setConnectionCallbackSuccess((message ->
-                Platform.runLater(() -> callbackConnectionSuccess())));
+        this.messageService.setConnectionCallbackSuccessStart((message ->
+                Platform.runLater(() -> callbackConnectionSuccessStart())));
+        this.messageService.setConnectionCallbackSuccessFinish((message ->
+                Platform.runLater(() -> callbackConnectionSuccessFinish())));
         this.messageService.setConnectionCallbackFailure((message ->
                 Platform.runLater(() -> callbackConnectionFailure(message))));
         this.messageService.setMessageSenderCallbackSuccess((message ->
@@ -194,26 +211,46 @@ public class MainScene extends AbstractScene {
     private void callbackListeningSuccess() {
         this.fieldHost.setText(this.messageService.getServerHost());
         this.fieldPort.setText(String.valueOf(this.messageService.getServerPort()));
-        showOnStateLabel("Server is launched and waiting client.");
         this.buttonStart.setText("Stop listening");
         this.buttonStart.setDisable(false);
+        showOnStateLabel("Server is launched and waiting client.");
     }
 
     private void callbackListeningFailure(String message) {
+        this.radioRoleServer.setDisable(false);
+        this.radioRoleClient.setDisable(false);
+
+        this.buttonStart.setDisable(false);
+        this.buttonStart.setText("Start server...");
+        this.fieldHost.setText("automatically...");
+        this.fieldPort.setText("automatically...");
+        this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
+
         showOnStateLabel("Server has been closed.");
         this.isStarted = false;
-        this.buttonStart.setText("Start server...");
-        this.buttonStart.setDisable(false);
-        fieldHost.setText("automatically...");
-        fieldPort.setText("automatically...");
     }
 
-    private void callbackConnectionSuccess() {
+    private void callbackConnectionSuccessStart() {
+        this.buttonStart.setDisable(false);
+        this.buttonStart.setText("Disconnect");
+    }
+
+    private void callbackConnectionSuccessFinish() {
 
     }
 
     private void callbackConnectionFailure(String message) {
+        this.radioRoleServer.setDisable(false);
+        this.radioRoleClient.setDisable(false);
+        this.fieldHost.setDisable(false);
+        this.fieldPort.setDisable(false);
+        this.buttonStart.setDisable(false);
+        this.buttonStart.setText("Connect");
 
+        String log = "Connection failed: " + message;
+        this.exceptionService.createPopupAlert(new CustomException(log));
+        showOnStateLabel(log);
+        isStarted = false;
     }
 
     private void callbackMessageSenderSuccess() {
@@ -246,7 +283,11 @@ public class MainScene extends AbstractScene {
                 handleRadioRoleClient();
             } else if (source == buttonStart) {
                 if (isStarted) {
-                    handleButtonStopService();
+                    if (radioRoleServer.isSelected()) {
+                        handleButtonStopServer();
+                    } else {
+                        handleButtonStopClient();
+                    }
                 } else {
                     if (radioRoleServer.isSelected()) {
                         handleButtonStartServer();
@@ -274,27 +315,53 @@ public class MainScene extends AbstractScene {
     }
 
     private void handleRadioRoleClient() {
-        buttonStart.setText("Connect...");
+        buttonStart.setText("Connect");
         fieldHost.setText(this.messageService.getServerHost());
         fieldHost.setDisable(false);
         fieldPort.setText(String.valueOf(this.messageService.getServerPort()));
         fieldPort.setDisable(false);
     }
 
-    private void handleButtonStartServer() throws CustomException {
+    private void handleButtonStartServer() throws CustomException, SocketException {
         isStarted = true;
+        this.radioRoleServer.setDisable(true);
+        this.radioRoleClient.setDisable(true);
         this.buttonStart.setDisable(true);
+
+        StringBuilder hostResult = new StringBuilder();
+        for (List<String> networkInterface : this.utilityService.getNetworkInterfaces()) {
+            for (String address : networkInterface) {
+                hostResult.append(address);
+                hostResult.append("\n");
+            }
+            hostResult.append("\n");
+        }
+        this.labelSummaryHostAddresses.setText(hostResult.toString());
+
         showOnStateLabel("The listening server is launching...");
         this.messageService.createServer();
     }
 
     private void handleButtonConnectToServer() throws CustomException {
-        this.messageService.setServerHost(messageService.getServerHost());
+        isStarted = true;
+        this.radioRoleServer.setDisable(true);
+        this.radioRoleClient.setDisable(true);
+        this.fieldHost.setDisable(true);
+        this.fieldPort.setDisable(true);
+        this.buttonStart.setDisable(true);
+        this.buttonStart.setText("Connecting...");
+
+        showOnStateLabel("Connecting to the server " + fieldHost.getText() + ":" + fieldPort.getText());
+        this.messageService.setServerHost(fieldHost.getText());
         this.messageService.setServerPort(Integer.parseInt(fieldPort.getText()));
         this.messageService.connectToServer();
     }
 
-    private void handleButtonStopService() throws IOException, CustomException {
+    private void handleButtonStopServer() throws IOException, CustomException {
+        this.messageService.stopService();
+    }
+
+    private void handleButtonStopClient() throws IOException, CustomException {
         this.messageService.stopService();
     }
 
@@ -306,7 +373,6 @@ public class MainScene extends AbstractScene {
             listMessages.add(message);
         }
     }
-
 
     private void showOnStateLabel(String message) {
         this.labelStateLine.setText(message == null ? "" : message);

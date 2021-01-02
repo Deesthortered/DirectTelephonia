@@ -6,6 +6,12 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
 
 @Component
 @PropertySource("classpath:application.properties")
@@ -34,5 +40,21 @@ public class UtilityService {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    public List<List<String>> getNetworkInterfaces() throws SocketException {
+        Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+        List<List<String>> resultInterfaces = new ArrayList<>();
+        while(interfaces.hasMoreElements()) {
+            NetworkInterface networkInterface = interfaces.nextElement();
+            Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
+            List<String> resultAddresses = new ArrayList<>();
+            while (addresses.hasMoreElements()) {
+                InetAddress address = addresses.nextElement();
+                resultAddresses.add(address.getHostAddress());
+            }
+            resultInterfaces.add(resultAddresses);
+        }
+        return resultInterfaces;
     }
 }
