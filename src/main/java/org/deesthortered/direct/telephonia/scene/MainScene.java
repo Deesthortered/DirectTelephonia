@@ -190,10 +190,8 @@ public class MainScene extends AbstractScene {
                 Platform.runLater(() -> callbackListeningSuccess())));
         this.messageService.setListeningCallbackFailure((message ->
                 Platform.runLater(() -> callbackListeningFailure(message))));
-        this.messageService.setConnectionCallbackSuccessStart((message ->
-                Platform.runLater(() -> callbackConnectionSuccessStart())));
-        this.messageService.setConnectionCallbackSuccessFinish((message ->
-                Platform.runLater(() -> callbackConnectionSuccessFinish())));
+        this.messageService.setConnectionCallbackSuccess((message ->
+                Platform.runLater(() -> callbackConnectionSuccess())));
         this.messageService.setConnectionCallbackFailure((message ->
                 Platform.runLater(() -> callbackConnectionFailure(message))));
         this.messageService.setMessageSenderCallbackSuccess((message ->
@@ -230,13 +228,11 @@ public class MainScene extends AbstractScene {
         this.isStarted = false;
     }
 
-    private void callbackConnectionSuccessStart() {
+    private void callbackConnectionSuccess() {
         this.buttonStart.setDisable(false);
         this.buttonStart.setText("Disconnect");
-    }
 
-    private void callbackConnectionSuccessFinish() {
-
+        showOnStateLabel("Connection is created successfully!");
     }
 
     private void callbackConnectionFailure(String message) {
@@ -254,19 +250,19 @@ public class MainScene extends AbstractScene {
     }
 
     private void callbackMessageSenderSuccess() {
-
+        this.exceptionService.createPopupInfo("callbackMessageSenderSuccess");
     }
 
     private void callbackMessageSenderFailure(String message) {
-
+        this.exceptionService.createPopupInfo("callbackMessageSenderFailure: " + message);
     }
 
     private void callbackMessageReceiverSuccess() {
-
+        this.exceptionService.createPopupInfo("callbackMessageReceiverSuccess");
     }
 
     private void callbackMessageReceiverFailure(String message) {
-
+        this.exceptionService.createPopupInfo("callbackMessageReceiverFailure: " + message);
     }
 
     private void callbackMessageReceiveMessage(String message) {
@@ -343,6 +339,11 @@ public class MainScene extends AbstractScene {
     }
 
     private void handleButtonConnectToServer() throws CustomException {
+        if (!this.utilityService.isNumeric(fieldPort.getText())) {
+            this.exceptionService.createPopupAlert(new CustomException("Port must be numeric value!"));
+            return;
+        }
+
         isStarted = true;
         this.radioRoleServer.setDisable(true);
         this.radioRoleClient.setDisable(true);
@@ -365,10 +366,10 @@ public class MainScene extends AbstractScene {
         this.messageService.stopService();
     }
 
-    private void handleButtonSendMessage() {
+    private void handleButtonSendMessage() throws CustomException {
         String message = fieldMessage.getText();
-        if (!"".equals(message)) {
-            // messageService.sendMessage(message);
+        if (message != null && !"".equals(message)) {
+            messageService.sendMessage(message);
             fieldMessage.setText("");
             listMessages.add(message);
         }

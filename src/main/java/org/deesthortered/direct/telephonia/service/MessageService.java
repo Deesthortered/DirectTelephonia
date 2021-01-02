@@ -30,8 +30,7 @@ public class MessageService {
     private volatile ServerSocket serverSocket;
 
     private Thread connectionThread;
-    private MessageServiceCallback connectionCallbackSuccessStart;
-    private MessageServiceCallback connectionCallbackSuccessFinish;
+    private MessageServiceCallback connectionCallbackSuccess;
     private MessageServiceCallback connectionCallbackFailure;
     private volatile Socket clientSocket;
 
@@ -45,6 +44,8 @@ public class MessageService {
 
     private MessageServiceCallback messageReceiveCallback;
     private volatile ConcurrentLinkedQueue<String> messagesForSending;
+    private volatile PrintWriter streamSender;
+    private volatile BufferedReader streamReceiver;
 
     public MessageService() {
         this.messagesForSending = new ConcurrentLinkedQueue<>();
@@ -94,13 +95,17 @@ public class MessageService {
             if (isConnected) {
                 this.messageSenderThread.interrupt();
                 this.messageReceiverThread.interrupt();
+
             } else {
                 this.clientSocket.close();
             }
         }
     }
 
-    public void sendMessage(String message) {
+    public void sendMessage(String message) throws CustomException {
+        if (!this.isLaunched || !this.isConnected) {
+            throw new CustomException("The " + (this.isServer ? "server" : "client") + " is not running for messaging.");
+        }
         this.messagesForSending.add(message);
     }
 
@@ -132,8 +137,6 @@ public class MessageService {
     private Callable<Void> getClientConnectionThread() {
         return () -> {
             try {
-                this.connectionCallbackSuccessStart.handleMessage("");
-
                 InetAddress inetAddress = InetAddress.getByName(this.serverHost);
                 SocketAddress socketAddress = new InetSocketAddress(inetAddress, this.serverPort);
                 this.clientSocket = new Socket();
@@ -141,12 +144,14 @@ public class MessageService {
                 this.clientSocket.connect(socketAddress);
                 this.isConnected = true;
 
+                this.connectionCallbackSuccess.handleMessage("");
+
                 this.messageSenderThread = new Thread(new FutureTask<>(getMessageSenderThread()));
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
                 this.messageSenderThread.start();
                 this.messageReceiverThread.start();
 
-                this.connectionCallbackSuccessFinish.handleMessage("");
+                this.connectionCallbackSuccess.handleMessage("");
             } catch (Exception e) {
                 this.connectionCallbackFailure.handleMessage(e.getMessage());
                 this.isLaunched = false;
@@ -159,15 +164,16 @@ public class MessageService {
     private Callable<Void> getMessageSenderThread() {
         return () -> {
             try {
-                PrintWriter out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream())), true);
+                streamSender = new PrintWriter(new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream())), true);
                 while (!this.messageSenderThread.isInterrupted()) {
                     if (!this.messagesForSending.isEmpty()) {
-                        out.println(this.messagesForSending.poll());
+                        streamSender.println(this.messagesForSending.poll());
                     }
                 }
-
                 this.messagesForSending.clear();
-                out.close();
+                streamSender.close();
+                streamReceiver.close();
+                this.clientSocket.close();
 
                 this.messageSenderCallbackSuccess.handleMessage("");
             } catch (Exception e) {
@@ -180,18 +186,13 @@ public class MessageService {
     private Callable<Void> getMessageReceiverThread() {
         return () -> {
             try {
-                BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                streamReceiver = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
                 String temp;
 
                 while (!this.messageSenderThread.isInterrupted()) {
-                    temp = in.readLine();
+                    temp = streamReceiver.readLine();
                     messageReceiveCallback.handleMessage(temp);
                 }
-
-                in.close();
-                this.clientSocket.close();
-                this.clientSocket = null;
-
                 this.messageReceiverCallbackSuccess.handleMessage("");
             } catch (Exception e) {
                 this.messageReceiverCallbackFailure.handleMessage(e.getMessage());
@@ -229,12 +230,8 @@ public class MessageService {
         this.listeningCallbackFailure = listeningCallbackFailure;
     }
 
-    public void setConnectionCallbackSuccessStart(MessageServiceCallback connectionCallbackSuccessStart) {
-        this.connectionCallbackSuccessStart = connectionCallbackSuccessStart;
-    }
-
-    public void setConnectionCallbackSuccessFinish(MessageServiceCallback connectionCallbackSuccessFinish) {
-        this.connectionCallbackSuccessFinish = connectionCallbackSuccessFinish;
+    public void setConnectionCallbackSuccess(MessageServiceCallback connectionCallbackSuccessFinish) {
+        this.connectionCallbackSuccess = connectionCallbackSuccessFinish;
     }
 
     public void setConnectionCallbackFailure(MessageServiceCallback connectionCallbackFailure) {
