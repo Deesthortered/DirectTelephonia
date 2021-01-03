@@ -29,8 +29,10 @@ public class MessageService {
     private volatile Boolean isClosing = false;
     private volatile Boolean isFirstGone = false;
     private volatile Boolean isNeedToDoFinalCallback = false;
+    private volatile Boolean isExceptionWasThrown = false;
     private volatile ReentrantLock closingLock = new ReentrantLock();
     private volatile ReentrantLock finalCallbackLock = new ReentrantLock();
+    private volatile ReentrantLock exceptionThrowingLock = new ReentrantLock();
 
     private Thread listeningThread;
     private MessageServiceCallback listeningCallbackSuccess;
@@ -45,19 +47,15 @@ public class MessageService {
     private volatile Socket clientSocket;
 
     private Thread messageSenderThread;
-    private MessageServiceCallback messageSenderCallbackSuccess;
-    private MessageServiceCallback messageSenderCallbackFailure;
-
     private Thread messageReceiverThread;
-    private MessageServiceCallback messageReceiverCallbackSuccess;
-    private MessageServiceCallback messageReceiverCallbackFailure;
+    private MessageServiceCallback messageSuccessfullyFinishedConnectionCallback;
+    private MessageServiceCallback messageFailFinishedConnectionCallback;
 
     private MessageServiceCallback messageReceiveCallback;
     private volatile ConcurrentLinkedQueue<String> messagesForSending = new ConcurrentLinkedQueue<>();
     private volatile PrintWriter streamSender;
     private volatile BufferedReader streamReceiver;
 
-    private MessageServiceCallback messageSuccessfullyFinishedConnectionCallback;
 
     public MessageService() {
     }
@@ -73,6 +71,7 @@ public class MessageService {
         this.isClosing = false;
         this.isFirstGone = false;
         this.isNeedToDoFinalCallback = false;
+        this.isExceptionWasThrown = false;
 
         this.listeningThread = new Thread(new FutureTask<>(getServerListeningThread()));
         this.listeningThread.setDaemon(true);
@@ -90,6 +89,7 @@ public class MessageService {
         this.isClosing = false;
         this.isFirstGone = false;
         this.isNeedToDoFinalCallback = false;
+        this.isExceptionWasThrown = false;
 
         this.connectionThread = new Thread(new FutureTask<>(getClientConnectionThread()));
         this.connectionThread.setDaemon(true);
@@ -129,10 +129,13 @@ public class MessageService {
 
                 this.listeningCallbackSuccess.handleMessage("");
                 this.clientSocket = serverSocket.accept();
+                this.serverSocket.close();
                 this.isConnected = true;
 
                 this.messageSenderThread = new Thread(new FutureTask<>(getMessageSenderThread()));
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
+                this.messageSenderThread.setDaemon(true);
+                this.messageReceiverThread.setDaemon(true);
                 this.messageSenderThread.start();
                 this.messageReceiverThread.start();
 
@@ -159,6 +162,8 @@ public class MessageService {
 
                 this.messageSenderThread = new Thread(new FutureTask<>(getMessageSenderThread()));
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
+                this.messageSenderThread.setDaemon(true);
+                this.messageReceiverThread.setDaemon(true);
                 this.messageSenderThread.start();
                 this.messageReceiverThread.start();
 
@@ -178,13 +183,16 @@ public class MessageService {
                 streamSender = new PrintWriter(new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream())), true);
 
                 while (!this.messageSenderThread.isInterrupted()) {
+                    if (this.isExceptionWasThrown) {
+                        throw new CustomException("Exception was detected at Receiver side");
+                    }
                     if (!this.messagesForSending.isEmpty()) {
                         streamSender.println(this.messagesForSending.poll());
                     }
                 }
                 this.messagesForSending.clear();
 
-                closingLock.lock();
+                this.closingLock.lock();
                 isClosing = true;
                 streamSender.println(this.serverFinishKeyWord);
                 streamSender.flush();
@@ -195,10 +203,9 @@ public class MessageService {
                 } else {
                     this.isFirstGone = true;
                 }
-                closingLock.unlock();
+                this.closingLock.unlock();
 
-                // Final callbacks
-                this.messageSenderCallbackSuccess.handleMessage("");
+                // Final callback
                 this.finalCallbackLock.lock();
                 if (this.isNeedToDoFinalCallback) {
                     this.messageSuccessfullyFinishedConnectionCallback.handleMessage("");
@@ -208,8 +215,24 @@ public class MessageService {
                 this.finalCallbackLock.unlock();
 
             } catch (Exception e) {
-                e.printStackTrace();
-                this.messageSenderCallbackFailure.handleMessage(e.getMessage());
+                if (!(e instanceof CustomException)) {
+                    e.printStackTrace();
+                }
+
+                if (this.closingLock.isLocked()) {
+                    this.closingLock.unlock();
+                }
+                if (this.finalCallbackLock.isLocked()) {
+                    this.finalCallbackLock.unlock();
+                }
+
+                this.exceptionThrowingLock.lock();
+                if (!this.isExceptionWasThrown) {
+                    this.messageFailFinishedConnectionCallback.handleMessage(e.getMessage());
+                    this.isExceptionWasThrown = true;
+                }
+                this.exceptionThrowingLock.unlock();
+
             } finally {
                 this.isConnected = false;
                 this.isLaunched = false;
@@ -225,14 +248,21 @@ public class MessageService {
                 String temp;
 
                 while (!this.messageSenderThread.isInterrupted()) {
+                    if (this.isExceptionWasThrown) {
+                        System.out.println("Exception is detected");
+                        throw new CustomException("Exception was detected at Sender side");
+                    }
                     temp = streamReceiver.readLine();
+                    if (temp == null) {
+                        throw new CustomException("Given string from reader stream is null. Maybe connection is aborted urgently.");
+                    }
                     if (this.serverFinishKeyWord.equals(temp)) {
                         break;
                     }
                     messageReceiveCallback.handleMessage(temp);
                 }
 
-                closingLock.lock();
+                this.closingLock.lock();
                 if (!isClosing) {
                     this.messageSenderThread.interrupt();
                 }
@@ -243,10 +273,9 @@ public class MessageService {
                 } else {
                     this.isFirstGone = true;
                 }
-                closingLock.unlock();
+                this.closingLock.unlock();
 
-                // Final callbacks
-                this.messageReceiverCallbackSuccess.handleMessage("");
+                // Final callback
                 this.finalCallbackLock.lock();
                 if (this.isNeedToDoFinalCallback) {
                     this.messageSuccessfullyFinishedConnectionCallback.handleMessage("");
@@ -256,8 +285,24 @@ public class MessageService {
                 this.finalCallbackLock.unlock();
 
             } catch (Exception e) {
-                e.printStackTrace();
-                this.messageReceiverCallbackFailure.handleMessage(e.getMessage());
+                if (!(e instanceof CustomException)) {
+                    e.printStackTrace();
+                }
+
+                if (this.closingLock.isLocked()) {
+                    this.closingLock.unlock();
+                }
+                if (this.finalCallbackLock.isLocked()) {
+                    this.finalCallbackLock.unlock();
+                }
+
+                this.exceptionThrowingLock.lock();
+                if (!this.isExceptionWasThrown) {
+                    this.messageFailFinishedConnectionCallback.handleMessage(e.getMessage());
+                    this.isExceptionWasThrown = true;
+                }
+                this.exceptionThrowingLock.unlock();
+
             } finally {
                 this.isConnected = false;
                 this.isLaunched = false;
@@ -311,24 +356,12 @@ public class MessageService {
         this.connectionCallbackFinish = connectionCallbackFinish;
     }
 
-    public void setMessageSenderCallbackSuccess(MessageServiceCallback messageSenderCallbackSuccess) {
-        this.messageSenderCallbackSuccess = messageSenderCallbackSuccess;
-    }
-
-    public void setMessageSenderCallbackFailure(MessageServiceCallback messageSenderCallbackFailure) {
-        this.messageSenderCallbackFailure = messageSenderCallbackFailure;
-    }
-
-    public void setMessageReceiverCallbackSuccess(MessageServiceCallback messageReceiverCallbackSuccess) {
-        this.messageReceiverCallbackSuccess = messageReceiverCallbackSuccess;
-    }
-
-    public void setMessageReceiverCallbackFailure(MessageServiceCallback messageReceiverCallbackFailure) {
-        this.messageReceiverCallbackFailure = messageReceiverCallbackFailure;
-    }
-
     public void setMessageSuccessfullyFinishedConnectionCallback(MessageServiceCallback messageSuccessfullyFinishedConnectionCallback) {
         this.messageSuccessfullyFinishedConnectionCallback = messageSuccessfullyFinishedConnectionCallback;
+    }
+
+    public void setMessageFailFinishedConnectionCallback(MessageServiceCallback messageFailFinishedConnectionCallback) {
+        this.messageFailFinishedConnectionCallback = messageFailFinishedConnectionCallback;
     }
 
     public void setMessageReceiverCallback(MessageServiceCallback messageReceiveCallback) {

@@ -1,9 +1,9 @@
 org/deesthortered/direct/telephonia/service/MessageService$MessageServiceCallback.class
 org/deesthortered/direct/telephonia/service/MessageService.class
+org/deesthortered/direct/telephonia/scene/AbstractScene.class
+org/deesthortered/direct/telephonia/DirectTelephonia.class
 org/deesthortered/direct/telephonia/scene/exception/ExceptionService.class
 org/deesthortered/direct/telephonia/service/UtilityService.class
 org/deesthortered/direct/telephonia/scene/exception/CustomException.class
 org/deesthortered/direct/telephonia/configuration/ApplicationConfiguration.class
 org/deesthortered/direct/telephonia/scene/MainScene.class
-org/deesthortered/direct/telephonia/scene/AbstractScene.class
-org/deesthortered/direct/telephonia/DirectTelephonia.class
