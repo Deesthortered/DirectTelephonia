@@ -10,6 +10,7 @@ import java.net.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Component
 @PropertySource("classpath:application.properties")
@@ -22,9 +23,12 @@ public class MessageService {
     @Value("${message.finish-key-word}")
     private String serverFinishKeyWord;
 
-    private Boolean isLaunched = false;
-    private Boolean isConnected = false;
-    private Boolean isServer;
+    private volatile Boolean isLaunched = false;
+    private volatile Boolean isConnected = false;
+    private volatile Boolean isServer;
+    private volatile Boolean isClosing = false;
+    private volatile Boolean firstGone = false;
+    private volatile ReentrantLock closingLock = new ReentrantLock();
 
     private Thread listeningThread;
     private MessageServiceCallback listeningCallbackSuccess;
@@ -63,6 +67,8 @@ public class MessageService {
         this.isLaunched = true;
         this.isConnected = false;
         this.isServer = true;
+        this.isClosing = false;
+        this.firstGone = false;
 
         this.listeningThread = new Thread(new FutureTask<>(getServerListeningThread()));
         this.listeningThread.setDaemon(true);
@@ -77,6 +83,8 @@ public class MessageService {
         this.isLaunched = true;
         this.isConnected = false;
         this.isServer = false;
+        this.isClosing = false;
+        this.firstGone = false;
 
         this.connectionThread = new Thread(new FutureTask<>(getClientConnectionThread()));
         this.connectionThread.setDaemon(true);
@@ -91,15 +99,12 @@ public class MessageService {
         if (isServer) {
             if (isConnected) {
                 this.messageSenderThread.interrupt();
-                this.messageReceiverThread.interrupt();
             } else {
                 this.serverSocket.close();
             }
         } else {
             if (isConnected) {
                 this.messageSenderThread.interrupt();
-                this.messageReceiverThread.interrupt();
-
             } else {
                 this.clientSocket.close();
             }
@@ -157,8 +162,6 @@ public class MessageService {
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
                 this.messageSenderThread.start();
                 this.messageReceiverThread.start();
-
-                this.connectionCallbackSuccess.handleMessage("");
             } catch (Exception e) {
                 this.connectionCallbackFailure.handleMessage(e.getMessage());
                 this.isLaunched = false;
@@ -178,12 +181,24 @@ public class MessageService {
                     }
                 }
                 this.messagesForSending.clear();
+
+                closingLock.lock();
+                isClosing = true;
                 streamSender.println(this.serverFinishKeyWord);
                 streamSender.close();
+                if (this.firstGone) {
+                    this.clientSocket.close();
+                } else {
+                    this.firstGone = true;
+                }
+                closingLock.unlock();
 
                 this.messageSenderCallbackSuccess.handleMessage("");
             } catch (Exception e) {
                 this.messageSenderCallbackFailure.handleMessage(e.getMessage());
+            } finally {
+                this.isConnected = false;
+                this.isLaunched = false;
             }
             return null;
         };
@@ -203,12 +218,24 @@ public class MessageService {
                     messageReceiveCallback.handleMessage(temp);
                 }
 
+                closingLock.lock();
+                if (!isClosing) {
+                    this.messageSenderThread.interrupt();
+                }
                 streamReceiver.close();
-                this.clientSocket.close();
+                if (this.firstGone) {
+                    this.clientSocket.close();
+                } else {
+                    this.firstGone = true;
+                }
+                closingLock.unlock();
 
                 this.messageReceiverCallbackSuccess.handleMessage("");
             } catch (Exception e) {
                 this.messageReceiverCallbackFailure.handleMessage(e.getMessage());
+            } finally {
+                this.isConnected = false;
+                this.isLaunched = false;
             }
             return null;
         };

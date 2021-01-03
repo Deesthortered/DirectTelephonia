@@ -241,7 +241,7 @@ public class MainScene extends AbstractScene {
         this.buttonStart.setDisable(false);
         this.buttonStart.setText("Disconnect");
 
-        showOnStateLabel("Connection is created successfully!");
+        showOnStateLabel("Connection socket is created successfully!");
     }
 
     private void callbackConnectionFailure(String message) {
