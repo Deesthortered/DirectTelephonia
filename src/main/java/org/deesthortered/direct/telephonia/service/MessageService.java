@@ -23,12 +23,14 @@ public class MessageService {
     @Value("${message.finish-key-word}")
     private String serverFinishKeyWord;
 
+    private volatile Boolean isServer;
     private volatile Boolean isLaunched = false;
     private volatile Boolean isConnected = false;
-    private volatile Boolean isServer;
     private volatile Boolean isClosing = false;
-    private volatile Boolean firstGone = false;
+    private volatile Boolean isFirstGone = false;
+    private volatile Boolean isNeedToDoFinalCallback = false;
     private volatile ReentrantLock closingLock = new ReentrantLock();
+    private volatile ReentrantLock finalCallbackLock = new ReentrantLock();
 
     private Thread listeningThread;
     private MessageServiceCallback listeningCallbackSuccess;
@@ -51,12 +53,13 @@ public class MessageService {
     private MessageServiceCallback messageReceiverCallbackFailure;
 
     private MessageServiceCallback messageReceiveCallback;
-    private volatile ConcurrentLinkedQueue<String> messagesForSending;
+    private volatile ConcurrentLinkedQueue<String> messagesForSending = new ConcurrentLinkedQueue<>();
     private volatile PrintWriter streamSender;
     private volatile BufferedReader streamReceiver;
 
+    private MessageServiceCallback messageSuccessfullyFinishedConnectionCallback;
+
     public MessageService() {
-        this.messagesForSending = new ConcurrentLinkedQueue<>();
     }
 
     public void createServer() throws CustomException {
@@ -68,7 +71,8 @@ public class MessageService {
         this.isConnected = false;
         this.isServer = true;
         this.isClosing = false;
-        this.firstGone = false;
+        this.isFirstGone = false;
+        this.isNeedToDoFinalCallback = false;
 
         this.listeningThread = new Thread(new FutureTask<>(getServerListeningThread()));
         this.listeningThread.setDaemon(true);
@@ -84,7 +88,8 @@ public class MessageService {
         this.isConnected = false;
         this.isServer = false;
         this.isClosing = false;
-        this.firstGone = false;
+        this.isFirstGone = false;
+        this.isNeedToDoFinalCallback = false;
 
         this.connectionThread = new Thread(new FutureTask<>(getClientConnectionThread()));
         this.connectionThread.setDaemon(true);
@@ -96,15 +101,11 @@ public class MessageService {
             throw new CustomException("The " + (this.isServer ? "server" : "client") + " is already stopped.");
         }
 
-        if (isServer) {
-            if (isConnected) {
-                this.messageSenderThread.interrupt();
-            } else {
-                this.serverSocket.close();
-            }
+        if (isConnected) {
+            this.messageSenderThread.interrupt();
         } else {
-            if (isConnected) {
-                this.messageSenderThread.interrupt();
+            if (isServer) {
+                this.serverSocket.close();
             } else {
                 this.clientSocket.close();
             }
@@ -128,18 +129,18 @@ public class MessageService {
 
                 this.listeningCallbackSuccess.handleMessage("");
                 this.clientSocket = serverSocket.accept();
-
                 this.isConnected = true;
-                this.listeningCallbackFinish.handleMessage("");
 
                 this.messageSenderThread = new Thread(new FutureTask<>(getMessageSenderThread()));
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
                 this.messageSenderThread.start();
                 this.messageReceiverThread.start();
+
+                this.listeningCallbackFinish.handleMessage("");
             } catch (Exception e) {
-                this.listeningCallbackFailure.handleMessage(e.getMessage());
                 this.isLaunched = false;
                 this.isConnected = false;
+                this.listeningCallbackFailure.handleMessage(e.getMessage());
             }
             return null;
         };
@@ -154,18 +155,18 @@ public class MessageService {
 
                 this.connectionCallbackSuccess.handleMessage("");
                 this.clientSocket.connect(socketAddress);
-
                 this.isConnected = true;
-                this.connectionCallbackFinish.handleMessage("");
 
                 this.messageSenderThread = new Thread(new FutureTask<>(getMessageSenderThread()));
                 this.messageReceiverThread = new Thread(new FutureTask<>(getMessageReceiverThread()));
                 this.messageSenderThread.start();
                 this.messageReceiverThread.start();
+
+                this.connectionCallbackFinish.handleMessage("");
             } catch (Exception e) {
-                this.connectionCallbackFailure.handleMessage(e.getMessage());
                 this.isLaunched = false;
                 this.isConnected = false;
+                this.connectionCallbackFailure.handleMessage(e.getMessage());
             }
             return null;
         };
@@ -175,6 +176,7 @@ public class MessageService {
         return () -> {
             try {
                 streamSender = new PrintWriter(new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream())), true);
+
                 while (!this.messageSenderThread.isInterrupted()) {
                     if (!this.messagesForSending.isEmpty()) {
                         streamSender.println(this.messagesForSending.poll());
@@ -185,16 +187,28 @@ public class MessageService {
                 closingLock.lock();
                 isClosing = true;
                 streamSender.println(this.serverFinishKeyWord);
-                streamSender.close();
-                if (this.firstGone) {
+                streamSender.flush();
+                if (this.isFirstGone) {
+                    streamSender.close();
+                    streamReceiver.close();
                     this.clientSocket.close();
                 } else {
-                    this.firstGone = true;
+                    this.isFirstGone = true;
                 }
                 closingLock.unlock();
 
+                // Final callbacks
                 this.messageSenderCallbackSuccess.handleMessage("");
+                this.finalCallbackLock.lock();
+                if (this.isNeedToDoFinalCallback) {
+                    this.messageSuccessfullyFinishedConnectionCallback.handleMessage("");
+                } else {
+                    this.isNeedToDoFinalCallback = true;
+                }
+                this.finalCallbackLock.unlock();
+
             } catch (Exception e) {
+                e.printStackTrace();
                 this.messageSenderCallbackFailure.handleMessage(e.getMessage());
             } finally {
                 this.isConnected = false;
@@ -222,16 +236,27 @@ public class MessageService {
                 if (!isClosing) {
                     this.messageSenderThread.interrupt();
                 }
-                streamReceiver.close();
-                if (this.firstGone) {
+                if (this.isFirstGone) {
+                    streamSender.close();
+                    streamReceiver.close();
                     this.clientSocket.close();
                 } else {
-                    this.firstGone = true;
+                    this.isFirstGone = true;
                 }
                 closingLock.unlock();
 
+                // Final callbacks
                 this.messageReceiverCallbackSuccess.handleMessage("");
+                this.finalCallbackLock.lock();
+                if (this.isNeedToDoFinalCallback) {
+                    this.messageSuccessfullyFinishedConnectionCallback.handleMessage("");
+                } else {
+                    this.isNeedToDoFinalCallback = true;
+                }
+                this.finalCallbackLock.unlock();
+
             } catch (Exception e) {
+                e.printStackTrace();
                 this.messageReceiverCallbackFailure.handleMessage(e.getMessage());
             } finally {
                 this.isConnected = false;
@@ -300,6 +325,10 @@ public class MessageService {
 
     public void setMessageReceiverCallbackFailure(MessageServiceCallback messageReceiverCallbackFailure) {
         this.messageReceiverCallbackFailure = messageReceiverCallbackFailure;
+    }
+
+    public void setMessageSuccessfullyFinishedConnectionCallback(MessageServiceCallback messageSuccessfullyFinishedConnectionCallback) {
+        this.messageSuccessfullyFinishedConnectionCallback = messageSuccessfullyFinishedConnectionCallback;
     }
 
     public void setMessageReceiverCallback(MessageServiceCallback messageReceiveCallback) {

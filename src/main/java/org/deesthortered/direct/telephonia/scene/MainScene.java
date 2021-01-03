@@ -206,6 +206,8 @@ public class MainScene extends AbstractScene {
                 Platform.runLater(() -> callbackMessageReceiverSuccess())));
         this.messageService.setMessageReceiverCallbackFailure(message ->
                 Platform.runLater(() -> callbackMessageReceiverFailure(message)));
+        this.messageService.setMessageSuccessfullyFinishedConnectionCallback(message ->
+                Platform.runLater(() -> callbackMessageSuccessfullyFinishedConnection()));
         this.messageService.setMessageReceiverCallback(message ->
                 Platform.runLater(() -> callbackMessageReceiveMessage(message)));
     }
@@ -228,7 +230,7 @@ public class MainScene extends AbstractScene {
         this.fieldPort.setText("automatically...");
         this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
 
-        showOnStateLabel("Server has been closed.");
+        showOnStateLabel("Server has been forced shutdown.");
         this.isStarted = false;
     }
 
@@ -264,7 +266,6 @@ public class MainScene extends AbstractScene {
     }
 
     private void callbackMessageSenderSuccess() {
-        showOnStateLabel("Sender stream is closed, receiver is next...");
     }
 
     private void callbackMessageSenderFailure(String message) {
@@ -284,29 +285,13 @@ public class MainScene extends AbstractScene {
         }
 
         isStarted = false;
+        showOnStateLabel("Message sender was aborted with exception: " + message);
         this.exceptionService.createPopupAlert(new CustomException(
                 "Message error (SenderFailure): " + message
         ));
     }
 
     private void callbackMessageReceiverSuccess() {
-        this.radioRoleServer.setDisable(false);
-        this.radioRoleClient.setDisable(false);
-        if (this.radioRoleServer.isSelected()) {
-            this.buttonStart.setDisable(false);
-            this.buttonStart.setText("Start server...");
-            this.fieldHost.setText("automatically...");
-            this.fieldPort.setText("automatically...");
-            this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
-        } else {
-            this.fieldHost.setDisable(false);
-            this.fieldPort.setDisable(false);
-            this.buttonStart.setDisable(false);
-            this.buttonStart.setText("Connect");
-        }
-
-        isStarted = false;
-        showOnStateLabel("Connection is closed. Now you can connect again!");
     }
 
     private void callbackMessageReceiverFailure(String message) {
@@ -326,9 +311,30 @@ public class MainScene extends AbstractScene {
         }
 
         isStarted = false;
+        showOnStateLabel("Message receiver was aborted with exception: " + message);
         this.exceptionService.createPopupAlert(new CustomException(
                 "Message error (ReceiverFailure): " + message
         ));
+    }
+
+    private void callbackMessageSuccessfullyFinishedConnection() {
+        this.radioRoleServer.setDisable(false);
+        this.radioRoleClient.setDisable(false);
+        if (this.radioRoleServer.isSelected()) {
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Start server...");
+            this.fieldHost.setText("automatically...");
+            this.fieldPort.setText("automatically...");
+            this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
+        } else {
+            this.fieldHost.setDisable(false);
+            this.fieldPort.setDisable(false);
+            this.buttonStart.setDisable(false);
+            this.buttonStart.setText("Connect");
+        }
+
+        isStarted = false;
+        showOnStateLabel("Connection is closed. Now you can connect again!");
     }
 
     private void callbackMessageReceiveMessage(String message) {
