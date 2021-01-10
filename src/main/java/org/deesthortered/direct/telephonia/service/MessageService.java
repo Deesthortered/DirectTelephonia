@@ -16,12 +16,12 @@ import java.util.concurrent.locks.ReentrantLock;
 @PropertySource("classpath:application.properties")
 public class MessageService {
 
-    @Value("${message.server.host}")
-    private String serverHost;
-    @Value("${message.server.port}")
-    private int serverPort;
+    @Value("${message.host}")
+    private volatile String serverHost;
+    @Value("${message.port}")
+    private volatile int serverPort;
     @Value("${message.finish-key-word}")
-    private String serverFinishKeyWord;
+    private volatile String serverFinishKeyWord;
 
     private volatile Boolean isServer;
     private volatile Boolean isLaunched = false;
@@ -34,20 +34,20 @@ public class MessageService {
     private volatile ReentrantLock finalCallbackLock = new ReentrantLock();
     private volatile ReentrantLock exceptionThrowingLock = new ReentrantLock();
 
-    private Thread listeningThread;
+    private volatile Thread listeningThread;
+    private volatile ServerSocket serverSocket;
     private MessageServiceCallback listeningCallbackSuccess;
     private MessageServiceCallback listeningCallbackFailure;
     private MessageServiceCallback listeningCallbackFinish;
-    private volatile ServerSocket serverSocket;
 
-    private Thread connectionThread;
+    private volatile Thread connectionThread;
+    private volatile Socket clientSocket;
     private MessageServiceCallback connectionCallbackSuccess;
     private MessageServiceCallback connectionCallbackFailure;
     private MessageServiceCallback connectionCallbackFinish;
-    private volatile Socket clientSocket;
 
-    private Thread messageSenderThread;
-    private Thread messageReceiverThread;
+    private volatile Thread messageSenderThread;
+    private volatile Thread messageReceiverThread;
     private MessageServiceCallback messageSuccessfullyFinishedConnectionCallback;
     private MessageServiceCallback messageFailFinishedConnectionCallback;
 

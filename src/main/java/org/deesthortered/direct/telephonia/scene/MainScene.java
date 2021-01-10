@@ -13,6 +13,7 @@ import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 import org.deesthortered.direct.telephonia.scene.exception.CustomException;
 import org.deesthortered.direct.telephonia.scene.exception.ExceptionService;
+import org.deesthortered.direct.telephonia.service.AudioStreamingService;
 import org.deesthortered.direct.telephonia.service.MessageService;
 import org.deesthortered.direct.telephonia.service.UtilityService;
 import org.springframework.stereotype.Component;
@@ -28,6 +29,7 @@ public class MainScene extends AbstractScene {
 
     private final ExceptionService exceptionService;
     private final MessageService messageService;
+    private final AudioStreamingService audioStreamingService;
     private final UtilityService utilityService;
 
     private final int windowWidth  = 1200;
@@ -41,7 +43,7 @@ public class MainScene extends AbstractScene {
     private RadioButton radioRoleServer;
     private RadioButton radioRoleClient;
     private TextField fieldHost;
-    private TextField fieldPort;
+    private TextField fieldMessagePort;
     private Button buttonStart;
 
     private Label labelSummaryInfo;
@@ -59,9 +61,11 @@ public class MainScene extends AbstractScene {
 
     public MainScene(ExceptionService exceptionService,
                      MessageService messageService,
+                     AudioStreamingService audioStreamingService,
                      UtilityService utilityService) {
         this.exceptionService = exceptionService;
         this.messageService = messageService;
+        this.audioStreamingService = audioStreamingService;
         this.utilityService = utilityService;
     }
 
@@ -85,6 +89,8 @@ public class MainScene extends AbstractScene {
         return "main-scene-style.css";
     }
 
+
+    // UI construction ////////////////////////
     @Override
     public Pane createMainPane() throws Exception {
         BorderPane mainPane = new BorderPane();
@@ -119,12 +125,12 @@ public class MainScene extends AbstractScene {
         Label labelPort = new Label("Port: ");
         fieldHost = new TextField();
         fieldHost.setText(this.messageService.getServerHost());
-        fieldPort = new TextField();
-        fieldPort.setText(String.valueOf(this.messageService.getServerPort()));
+        fieldMessagePort = new TextField();
+        fieldMessagePort.setText(String.valueOf(this.messageService.getServerPort()));
         HBox paneHost = new HBox();
         paneHost.getChildren().addAll(labelHost, fieldHost);
         HBox panePort = new HBox();
-        panePort.getChildren().addAll(labelPort, fieldPort);
+        panePort.getChildren().addAll(labelPort, fieldMessagePort);
         VBox paneServerInfo = new VBox();
         paneServerInfo.getChildren().addAll(labelServerInfo, paneHost, panePort);
 
@@ -183,8 +189,10 @@ public class MainScene extends AbstractScene {
         paneMessagePanel.getChildren().addAll(listviewMessages, paneInputMessage, paneStateLine);
         return paneMessagePanel;
     }
+    //////////////////////////
 
 
+    // Message callbacks ////////////////////////
     private void initializeServices() {
         this.messageService.setListeningCallbackSuccess((message ->
                 Platform.runLater(() -> callbackListeningSuccess())));
@@ -204,11 +212,24 @@ public class MainScene extends AbstractScene {
                 Platform.runLater(() -> callbackMessageFailedFinishedConnection(message)));
         this.messageService.setMessageReceiverCallback(message ->
                 Platform.runLater(() -> callbackMessageReceiveMessage(message)));
+
+        this.audioStreamingService.setAudioServiceCallbackRecordingFailed(message ->
+                Platform.runLater(() -> callbackAudioServiceRecordingFailed(message)));
+        this.audioStreamingService.setAudioServiceCallbackPlayingFailed(message ->
+                Platform.runLater(() -> callbackAudioServicePlayingFailed(message)));
+        this.audioStreamingService.setAudioServiceCallbackPlayingStopped(message ->
+                Platform.runLater(() -> callbackAudioServicePlayingStopped()));
+        this.audioStreamingService.setAudioServiceCallbackPlayingFinished(message ->
+                Platform.runLater(() -> callbackAudioServicePlayingFinished()));
+        this.audioStreamingService.setAudioStreamingServiceSendingFailed(message ->
+                Platform.runLater(() -> callbackAudioStreamingServiceSendingFailed(message)));
+        this.audioStreamingService.setAudioStreamingServiceReceivingFailed(message ->
+                Platform.runLater(() -> callbackAudioStreamingServiceReceivingFailed(message)));
     }
 
     private void callbackListeningSuccess() {
         this.fieldHost.setText(this.messageService.getServerHost());
-        this.fieldPort.setText(String.valueOf(this.messageService.getServerPort()));
+        this.fieldMessagePort.setText(String.valueOf(this.messageService.getServerPort()));
         this.buttonStart.setText("Stop listening");
         this.buttonStart.setDisable(false);
         showOnStateLabel("Server is launched and waiting client.");
@@ -221,7 +242,7 @@ public class MainScene extends AbstractScene {
         this.buttonStart.setDisable(false);
         this.buttonStart.setText("Start server...");
         this.fieldHost.setText("automatically...");
-        this.fieldPort.setText("automatically...");
+        this.fieldMessagePort.setText("automatically...");
         this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
 
         showOnStateLabel("Server has been forced shutdown.");
@@ -244,7 +265,7 @@ public class MainScene extends AbstractScene {
         this.radioRoleServer.setDisable(false);
         this.radioRoleClient.setDisable(false);
         this.fieldHost.setDisable(false);
-        this.fieldPort.setDisable(false);
+        this.fieldMessagePort.setDisable(false);
         this.buttonStart.setDisable(false);
         this.buttonStart.setText("Connect");
 
@@ -266,11 +287,11 @@ public class MainScene extends AbstractScene {
             this.buttonStart.setDisable(false);
             this.buttonStart.setText("Start server...");
             this.fieldHost.setText("automatically...");
-            this.fieldPort.setText("automatically...");
+            this.fieldMessagePort.setText("automatically...");
             this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
         } else {
             this.fieldHost.setDisable(false);
-            this.fieldPort.setDisable(false);
+            this.fieldMessagePort.setDisable(false);
             this.buttonStart.setDisable(false);
             this.buttonStart.setText("Connect");
         }
@@ -286,11 +307,11 @@ public class MainScene extends AbstractScene {
             this.buttonStart.setDisable(false);
             this.buttonStart.setText("Start server...");
             this.fieldHost.setText("automatically...");
-            this.fieldPort.setText("automatically...");
+            this.fieldMessagePort.setText("automatically...");
             this.labelSummaryHostAddresses.setText("Start the server to see addresses.");
         } else {
             this.fieldHost.setDisable(false);
-            this.fieldPort.setDisable(false);
+            this.fieldMessagePort.setDisable(false);
             this.buttonStart.setDisable(false);
             this.buttonStart.setText("Connect");
         }
@@ -305,6 +326,34 @@ public class MainScene extends AbstractScene {
     private void callbackMessageReceiveMessage(String message) {
         listMessages.add(message);
     }
+    //////////////////////////
+
+
+    // Audio callbacks ////////////////////////
+    private void callbackAudioServiceRecordingFailed(String message) {
+
+    }
+
+    private void callbackAudioServicePlayingFailed(String message) {
+
+    }
+
+    private void callbackAudioServicePlayingStopped() {
+
+    }
+
+    private void callbackAudioServicePlayingFinished() {
+
+    }
+
+    private void callbackAudioStreamingServiceSendingFailed(String message) {
+
+    }
+
+    private void callbackAudioStreamingServiceReceivingFailed(String message) {
+
+    }
+    //////////////////////////
 
     @Override
     public void handle(Event event) {
@@ -343,16 +392,16 @@ public class MainScene extends AbstractScene {
         buttonStart.setText("Start server...");
         fieldHost.setText("automatically...");
         fieldHost.setDisable(true);
-        fieldPort.setText("automatically...");
-        fieldPort.setDisable(true);
+        fieldMessagePort.setText("automatically...");
+        fieldMessagePort.setDisable(true);
     }
 
     private void handleRadioRoleClient() {
         buttonStart.setText("Connect");
         fieldHost.setText(this.messageService.getServerHost());
         fieldHost.setDisable(false);
-        fieldPort.setText(String.valueOf(this.messageService.getServerPort()));
-        fieldPort.setDisable(false);
+        fieldMessagePort.setText(String.valueOf(this.messageService.getServerPort()));
+        fieldMessagePort.setDisable(false);
     }
 
     private void handleButtonStartServer() throws CustomException, SocketException {
@@ -376,7 +425,7 @@ public class MainScene extends AbstractScene {
     }
 
     private void handleButtonConnectToServer() throws CustomException {
-        if (!this.utilityService.isNumeric(fieldPort.getText())) {
+        if (!this.utilityService.isNumeric(fieldMessagePort.getText())) {
             this.exceptionService.createPopupAlert(new CustomException("Port must be numeric value!"));
             return;
         }
@@ -385,13 +434,13 @@ public class MainScene extends AbstractScene {
         this.radioRoleServer.setDisable(true);
         this.radioRoleClient.setDisable(true);
         this.fieldHost.setDisable(true);
-        this.fieldPort.setDisable(true);
+        this.fieldMessagePort.setDisable(true);
         this.buttonStart.setDisable(true);
         this.buttonStart.setText("Connecting...");
 
-        showOnStateLabel("Connecting to the server " + fieldHost.getText() + ":" + fieldPort.getText());
+        showOnStateLabel("Connecting to the server " + fieldHost.getText() + ":" + fieldMessagePort.getText());
         this.messageService.setServerHost(fieldHost.getText());
-        this.messageService.setServerPort(Integer.parseInt(fieldPort.getText()));
+        this.messageService.setServerPort(Integer.parseInt(fieldMessagePort.getText()));
         this.messageService.connectToServer();
     }
 
