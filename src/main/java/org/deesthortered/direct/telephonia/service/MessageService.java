@@ -23,6 +23,7 @@ public class MessageService {
     @Value("${message.finish-key-word}")
     private volatile String serverFinishKeyWord;
 
+    private volatile Boolean isAutoDefineNetworkData;
     private volatile Boolean isServer;
     private volatile Boolean isLaunched = false;
     private volatile Boolean isConnected = false;
@@ -60,11 +61,12 @@ public class MessageService {
     public MessageService() {
     }
 
-    public void createServer() throws CustomException {
+    public void createServer(boolean autoDefineNetworkData) throws CustomException {
         if (this.isLaunched) {
             throw new CustomException("The " + (this.isServer ? "server" : "client") + " is already launched, needs to stop.");
         }
 
+        this.isAutoDefineNetworkData = autoDefineNetworkData;
         this.isLaunched = true;
         this.isConnected = false;
         this.isServer = true;
@@ -123,7 +125,7 @@ public class MessageService {
     private Callable<Void> getServerListeningThread() {
         return () -> {
             try {
-                this.serverSocket = new ServerSocket(0);
+                this.serverSocket = new ServerSocket(this.isAutoDefineNetworkData ? 0 : this.serverPort);
                 this.serverHost = this.serverSocket.getInetAddress().getHostAddress();
                 this.serverPort = this.serverSocket.getLocalPort();
 
@@ -326,6 +328,10 @@ public class MessageService {
 
     public int getServerPort() {
         return serverPort;
+    }
+
+    public boolean isLaunched() {
+        return isLaunched;
     }
 
     public interface MessageServiceCallback {

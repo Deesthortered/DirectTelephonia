@@ -1,5 +1,6 @@
 package org.deesthortered.direct.telephonia.scene;
 
+import javafx.application.Platform;
 import javafx.event.Event;
 import javafx.event.EventHandler;
 import javafx.scene.Scene;
@@ -30,7 +31,7 @@ public abstract class AbstractScene implements EventHandler<Event> {
             } catch (Exception e) {
                 System.out.println("System error! The application will be terminated.");
                 e.printStackTrace();
-                System.exit(-1);
+                Platform.exit();
             }
         }
         return this.stage;

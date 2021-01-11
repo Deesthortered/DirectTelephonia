@@ -1,6 +1,7 @@
 package org.deesthortered.direct.telephonia.service;
 
 import org.apache.commons.lang3.ArrayUtils;
+import org.deesthortered.direct.telephonia.scene.exception.CustomException;
 import org.deesthortered.direct.telephonia.service.audioservice.AudioServiceReceiver;
 import org.deesthortered.direct.telephonia.service.audioservice.AudioServiceReproducer;
 import org.deesthortered.direct.telephonia.service.audioservice.impl.AudioServiceCallback;
@@ -24,7 +25,7 @@ import java.util.concurrent.FutureTask;
 @Component
 public class AudioStreamingService {
 
-    private static final Integer maxPacketSize = 508; // 65507 - 1432 - 508
+    private static final Integer maxPacketSize = 16; // 65507 - 1432 - 508
 
     @Value("${audio.host}")
     private volatile String host;
@@ -44,6 +45,8 @@ public class AudioStreamingService {
 
     private volatile boolean isReceiverInitialized;
     private volatile boolean isReproducerInitialized;
+    private volatile boolean isReceiverStarted;
+    private volatile boolean isReproducerStarted;
     private final AudioServiceReceiver audioServiceReceiver;
     private final AudioServiceReproducer audioServiceReproducer;
     private AudioServiceCallback audioServiceCallbackRecordingFailed;
@@ -60,21 +63,24 @@ public class AudioStreamingService {
 
         this.isReceiverInitialized = false;
         this.isReproducerInitialized = false;
+        this.isReceiverStarted = false;
+        this.isReproducerStarted = false;
         this.audioServiceReceiver = audioServiceReceiver;
         this.audioServiceReproducer = audioServiceReproducer;
         this.audioServiceReceiver.setStreamWriter(getAudioServiceStreamWriter());
         this.audioServiceReproducer.setStreamReader(getAudioServiceStreamReader());
-
-        // Cyphering Filter
-        this.audioServiceReceiver.addFilter(getCypheringFilter());
-        this.audioServiceReproducer.addFilter(getCypheringFilter());
     }
 
-    public void createServer() {
+    public void createServer() throws CustomException {
+        if (this.isReceiverStarted) {
+            throw new CustomException("The audio receiver is started!");
+        }
+
         if (!this.isReceiverInitialized) {
             audioServiceReceiver.initializeService(
                     audioServiceCallbackRecordingFailed);
 
+            this.audioServiceReceiver.addFilter(AudioStreamingService.getCypheringFilter());
             this.isReceiverInitialized = true;
         }
 
@@ -83,13 +89,18 @@ public class AudioStreamingService {
         this.serverThread.start();
     }
 
-    public void connectToServer() {
+    public void connectToServer() throws CustomException {
+        if (this.isReproducerStarted) {
+            throw new CustomException("The audio reproducer is started!");
+        }
+
         if (!this.isReproducerInitialized) {
             audioServiceReproducer.initializeService(
                     audioServiceCallbackPlayingFailed,
                     audioServiceCallbackPlayingStopped,
                     audioServiceCallbackPlayingFinished);
 
+            this.audioServiceReproducer.addFilter(AudioStreamingService.getCypheringFilter());
             this.isReproducerInitialized = true;
         }
 
@@ -99,31 +110,44 @@ public class AudioStreamingService {
     }
 
     public void stopService() {
+        this.audioServiceReproducer.stopPlayingRecord();
+        this.audioServiceReceiver.stopRecording();
         this.audioServiceReproducer.close();
         this.audioServiceReceiver.close();
         this.serverThread.interrupt();
         this.clientThread.interrupt();
         this.serverSocket.close();
         this.clientSocket.close();
+        this.isReceiverStarted = false;
+        this.isReproducerStarted = false;
     }
 
 
     private Callable<Void> getInputAudioStreamingThread() {
         return () -> {
             try {
+                this.isReceiverStarted = true;
                 address = InetAddress.getByName(this.host);
                 this.serverSocket = new DatagramSocket(this.serverPort);
-                //this.serverPort = this.serverSocket.getPort();
 
+                boolean firstPacketHere = false;
                 while (!this.serverThread.isInterrupted()) {
                     byte[] buffer = new byte[maxPacketSize];
                     DatagramPacket response = new DatagramPacket(buffer, buffer.length);
                     serverSocket.receive(response);
                     serverReceivedPackets.add(convertArrayToList(buffer));
+                    if (!firstPacketHere) {
+                        firstPacketHere = true;
+                        this.audioServiceReproducer.startPlayingRecord();
+                    }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
-                audioStreamingServiceReceivingFailed.callback(e.getMessage());
+                this.audioStreamingServiceReceivingFailed.callback(e.getMessage());
+            } finally {
+                this.serverSocket.close();
+                this.audioServiceReproducer.stopPlayingRecord();
+                this.isReceiverStarted = false;
             }
             return null;
         };
@@ -132,9 +156,11 @@ public class AudioStreamingService {
     private Callable<Void> getOutputAudioStreamingThread() {
         return () -> {
             try {
+                this.isReproducerStarted = true;
                 address = InetAddress.getByName(this.host);
                 this.clientSocket = new DatagramSocket(this.clientPort);
 
+                this.audioServiceReceiver.startRecording();
                 while (!this.clientThread.isInterrupted()) {
                     while (!this.clientSendingPackets.isEmpty()) {
                         byte[] buffer = convertListToArray(this.clientSendingPackets.poll());
@@ -144,7 +170,11 @@ public class AudioStreamingService {
                 }
             } catch (Exception e) {
                 e.printStackTrace();
-                audioStreamingServiceSendingFailed.callback(e.getMessage());
+                this.audioStreamingServiceSendingFailed.callback(e.getMessage());
+            } finally {
+                this.clientSocket.close();
+                this.audioServiceReceiver.stopRecording();
+                this.isReproducerStarted = false;
             }
             return null;
         };
@@ -202,7 +232,7 @@ public class AudioStreamingService {
         };
     }
 
-    private AudioServiceStreamFilter getCypheringFilter() {
+    private static AudioServiceStreamFilter getCypheringFilter() {
         return new AudioServiceStreamFilter() {
             private final String key = "ThisIsASecretKey";
 
