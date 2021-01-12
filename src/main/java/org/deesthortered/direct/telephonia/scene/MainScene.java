@@ -296,26 +296,26 @@ public class MainScene extends AbstractScene {
 
 
     private Pane createNetworkInterfacePanel() throws SocketException {
-        StringBuilder hostResult = new StringBuilder();
-        boolean needEnter = true;
+        ObservableList<String> networkInterfaceList = FXCollections.observableList(new ArrayList<>());
         for (List<String> networkInterface : this.utilityService.getNetworkInterfaces()) {
             for (String address : networkInterface) {
                 if (!address.trim().equals("")) {
-                    hostResult.append(address);
-                    hostResult.append("\n");
-                    needEnter = false;
+                    networkInterfaceList.add(address.trim());
                 }
             }
-            if (needEnter) {
-                hostResult.append("\n");
-                needEnter = false;
-            }
         }
+
         Label labelSummaryHostAddresses = new Label();
-        labelSummaryHostAddresses.setText("Your network interfaces:\n" + hostResult.toString());
+        labelSummaryHostAddresses.setText("Your network interfaces:");
+
+        ListView<String> listviewNetworkInterface = new ListView<>(networkInterfaceList);
+        listviewNetworkInterface.setPrefHeight(100);
+
+        VBox boxNetworkInterfaces = new VBox();
+        boxNetworkInterfaces.getChildren().addAll(labelSummaryHostAddresses, listviewNetworkInterface);
 
         StackPane networkInterfacePanelPane = new StackPane();
-        networkInterfacePanelPane.getChildren().addAll(labelSummaryHostAddresses);
+        networkInterfacePanelPane.getChildren().addAll(boxNetworkInterfaces);
         networkInterfacePanelPane.setAlignment(Pos.CENTER_LEFT);
         return networkInterfacePanelPane;
     }
@@ -323,7 +323,7 @@ public class MainScene extends AbstractScene {
     private Pane createMessagingPanel() {
         listMessages = FXCollections.observableList(new ArrayList<>());
         listviewMessages = new ListView<>(listMessages);
-        listviewMessages.setPrefHeight(250);
+        listviewMessages.setPrefHeight(200);
 
         fieldMessage = new TextField();
         buttonSendMessage = new Button("Send");
