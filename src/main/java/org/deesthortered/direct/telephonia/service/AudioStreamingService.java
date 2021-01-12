@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Component
 public class AudioStreamingService {
@@ -28,10 +29,12 @@ public class AudioStreamingService {
     private static final Integer maxPacketSize = 16; // 65507 - 1432 - 508
 
     @Value("${audio.host}")
-    private volatile String host;
-    @Value("${audio.port}")
+    private volatile String serverHost;
+    @Value("${audio.server.port}")
     private volatile Integer serverPort;
-    @Value("${audio.port}")
+    @Value("${audio.host}")
+    private volatile String clientHost;
+    @Value("${audio.client.port}")
     private volatile Integer clientPort;
 
     private volatile InetAddress address;
@@ -43,46 +46,59 @@ public class AudioStreamingService {
     private final ConcurrentLinkedQueue<List<Byte>> serverReceivedPackets;
     private final ConcurrentLinkedQueue<List<Byte>> clientSendingPackets;
 
-    private volatile boolean isReceiverInitialized;
-    private volatile boolean isReproducerInitialized;
-    private volatile boolean isReceiverStarted;
-    private volatile boolean isReproducerStarted;
+    private volatile boolean isAutoDefineNetworkData;
+    private volatile boolean isLaunched;
+    private volatile boolean isServiceInitialized;
+    private volatile boolean isServerLaunched;
+    private volatile boolean isClientLaunched;
+    private final ReentrantLock lockLaunched;
     private final AudioServiceReceiver audioServiceReceiver;
     private final AudioServiceReproducer audioServiceReproducer;
     private AudioServiceCallback audioServiceCallbackRecordingFailed;
     private AudioServiceCallback audioServiceCallbackPlayingFailed;
     private AudioServiceCallback audioServiceCallbackPlayingStopped;
     private AudioServiceCallback audioServiceCallbackPlayingFinished;
-    private AudioStreamingServiceCallback audioStreamingServiceReceivingFailed;
-    private AudioStreamingServiceCallback audioStreamingServiceSendingFailed;
+    private AudioStreamingServiceCallback audioStreamingCallbackServiceListeningSuccessful;
+    private AudioStreamingServiceCallback audioStreamingCallbackServiceSendingSuccessful;
+    private AudioStreamingServiceCallback audioStreamingCallbackServiceReceivingFailed;
+    private AudioStreamingServiceCallback audioStreamingCallbackServiceSendingFailed;
+    private AudioStreamingServiceCallback audioStreamingCallbackServiceServerFinishedSuccessfully;
+    private AudioStreamingServiceCallback audioStreamingCallbackServiceClientFinishedSuccessfully;
+    private AudioStreamingServiceCallback audioStreamingCallbackServiceFullyFinishedSuccessfully;
 
     public AudioStreamingService(AudioServiceReceiver audioServiceReceiver,
                                  AudioServiceReproducer audioServiceReproducer) {
         this.serverReceivedPackets = new ConcurrentLinkedQueue<>();
         this.clientSendingPackets = new ConcurrentLinkedQueue<>();
 
-        this.isReceiverInitialized = false;
-        this.isReproducerInitialized = false;
-        this.isReceiverStarted = false;
-        this.isReproducerStarted = false;
+        this.isLaunched = false;
+        this.isServiceInitialized = false;
+        this.isServerLaunched = false;
+        this.isClientLaunched = false;
+        this.lockLaunched = new ReentrantLock();
         this.audioServiceReceiver = audioServiceReceiver;
         this.audioServiceReproducer = audioServiceReproducer;
         this.audioServiceReceiver.setStreamWriter(getAudioServiceStreamWriter());
         this.audioServiceReproducer.setStreamReader(getAudioServiceStreamReader());
     }
 
-    public void createServer() throws CustomException {
-        if (this.isReceiverStarted) {
-            throw new CustomException("The audio receiver is started!");
+    public void startServer(boolean autoDefineNetworkData) throws CustomException {
+        if (this.isServerLaunched) {
+            throw new CustomException("The audio service server is started!");
         }
 
-        if (!this.isReceiverInitialized) {
-            audioServiceReceiver.initializeService(
-                    audioServiceCallbackRecordingFailed);
-
+        if (!this.isServiceInitialized) {
+            audioServiceReproducer.initializeService(
+                    audioServiceCallbackPlayingFailed,
+                    audioServiceCallbackPlayingStopped,
+                    audioServiceCallbackPlayingFinished);
+            audioServiceReceiver.initializeService(audioServiceCallbackRecordingFailed);
             this.audioServiceReceiver.addFilter(AudioStreamingService.getCypheringFilter());
-            this.isReceiverInitialized = true;
+            this.audioServiceReproducer.addFilter(AudioStreamingService.getCypheringFilter());
+            this.isServiceInitialized = true;
         }
+
+        this.isAutoDefineNetworkData = autoDefineNetworkData;
 
         this.serverThread = new Thread(new FutureTask<>(getInputAudioStreamingThread()));
         this.serverThread.setDaemon(true);
@@ -90,18 +106,11 @@ public class AudioStreamingService {
     }
 
     public void connectToServer() throws CustomException {
-        if (this.isReproducerStarted) {
-            throw new CustomException("The audio reproducer is started!");
+        if (this.isClientLaunched) {
+            throw new CustomException("The audio service is started!");
         }
-
-        if (!this.isReproducerInitialized) {
-            audioServiceReproducer.initializeService(
-                    audioServiceCallbackPlayingFailed,
-                    audioServiceCallbackPlayingStopped,
-                    audioServiceCallbackPlayingFinished);
-
-            this.audioServiceReproducer.addFilter(AudioStreamingService.getCypheringFilter());
-            this.isReproducerInitialized = true;
+        if (!this.isServerLaunched) {
+            throw new CustomException("Audio service server must be started!");
         }
 
         this.clientThread = new Thread(new FutureTask<>(getOutputAudioStreamingThread()));
@@ -109,26 +118,38 @@ public class AudioStreamingService {
         this.clientThread.start();
     }
 
-    public void stopService() {
-        this.audioServiceReproducer.stopPlayingRecord();
-        this.audioServiceReceiver.stopRecording();
-        this.audioServiceReproducer.close();
-        this.audioServiceReceiver.close();
-        this.serverThread.interrupt();
-        this.clientThread.interrupt();
-        this.serverSocket.close();
-        this.clientSocket.close();
-        this.isReceiverStarted = false;
-        this.isReproducerStarted = false;
+    public void stopService() throws CustomException {
+        if (!this.isServerLaunched) {
+            throw new CustomException("Service is not launched");
+        }
+        if (this.isServerLaunched) {
+            this.serverThread.interrupt();
+            this.serverSocket.close();
+        }
+        if (this.isClientLaunched) {
+            this.clientThread.interrupt();
+            this.clientSocket.close();
+        }
     }
 
 
     private Callable<Void> getInputAudioStreamingThread() {
         return () -> {
+            boolean isFailed = false;
             try {
-                this.isReceiverStarted = true;
-                address = InetAddress.getByName(this.host);
-                this.serverSocket = new DatagramSocket(this.serverPort);
+                isServerLaunched = true;
+                isLaunched = true;
+
+                address = InetAddress.getByName(this.serverHost);
+                if (isAutoDefineNetworkData) {
+                    this.serverSocket = new DatagramSocket(0);
+                    this.serverHost = this.serverSocket.getLocalAddress().getHostAddress();
+                    this.serverPort = this.serverSocket.getLocalPort();
+                } else {
+                    this.serverSocket = new DatagramSocket(this.serverPort);
+                }
+
+                audioStreamingCallbackServiceListeningSuccessful.callback("");
 
                 boolean firstPacketHere = false;
                 while (!this.serverThread.isInterrupted()) {
@@ -142,12 +163,29 @@ public class AudioStreamingService {
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
-                this.audioStreamingServiceReceivingFailed.callback(e.getMessage());
+                if (!e.getMessage().equals("Socket closed")) {
+                    e.printStackTrace();
+                }
+                isFailed = true;
+                this.audioStreamingCallbackServiceReceivingFailed.callback(e.getMessage());
             } finally {
-                this.serverSocket.close();
                 this.audioServiceReproducer.stopPlayingRecord();
-                this.isReceiverStarted = false;
+                this.audioServiceReproducer.close();
+                if (this.serverSocket != null && !this.serverSocket.isClosed()) {
+                    this.serverSocket.close();
+                }
+
+                if (!isFailed) {
+                    audioStreamingCallbackServiceServerFinishedSuccessfully.callback("");
+                }
+
+                this.lockLaunched.lock();
+                this.isServerLaunched = false;
+                if (!this.isClientLaunched) {
+                    this.isLaunched = false;
+                    this.audioStreamingCallbackServiceFullyFinishedSuccessfully.callback("");
+                }
+                this.lockLaunched.unlock();
             }
             return null;
         };
@@ -155,26 +193,48 @@ public class AudioStreamingService {
 
     private Callable<Void> getOutputAudioStreamingThread() {
         return () -> {
+            boolean isFailed = false;
             try {
-                this.isReproducerStarted = true;
-                address = InetAddress.getByName(this.host);
+                this.isClientLaunched = true;
+                address = InetAddress.getByName(this.clientHost);
                 this.clientSocket = new DatagramSocket(this.clientPort);
 
+                boolean firstPacketSent = false;
                 this.audioServiceReceiver.startRecording();
                 while (!this.clientThread.isInterrupted()) {
                     while (!this.clientSendingPackets.isEmpty()) {
                         byte[] buffer = convertListToArray(this.clientSendingPackets.poll());
                         DatagramPacket request = new DatagramPacket(buffer, buffer.length, address, clientPort);
                         clientSocket.send(request);
+                        if (!firstPacketSent) {
+                            firstPacketSent = true;
+                            audioStreamingCallbackServiceSendingSuccessful.callback("");
+                        }
                     }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
-                this.audioStreamingServiceSendingFailed.callback(e.getMessage());
+                isFailed = true;
+                this.audioStreamingCallbackServiceSendingFailed.callback(e.getMessage());
             } finally {
-                this.clientSocket.close();
                 this.audioServiceReceiver.stopRecording();
-                this.isReproducerStarted = false;
+                this.audioServiceReceiver.close();
+                this.clientSendingPackets.clear();
+                if (this.clientSocket != null && !this.clientSocket.isClosed()) {
+                    this.clientSocket.close();
+                }
+
+                if (!isFailed) {
+                    audioStreamingCallbackServiceClientFinishedSuccessfully.callback("");
+                }
+
+                this.lockLaunched.lock();
+                this.isClientLaunched = false;
+                if (!this.isServerLaunched) {
+                    this.isLaunched = false;
+                    this.audioStreamingCallbackServiceFullyFinishedSuccessfully.callback("");
+                }
+                this.lockLaunched.unlock();
             }
             return null;
         };
@@ -249,12 +309,12 @@ public class AudioStreamingService {
     }
 
 
-    public String getHost() {
-        return host;
+    public String getServerHost() {
+        return serverHost;
     }
 
-    public void setHost(String host) {
-        this.host = host;
+    public void setServerHost(String serverHost) {
+        this.serverHost = serverHost;
     }
 
     public Integer getServerPort() {
@@ -265,6 +325,14 @@ public class AudioStreamingService {
         this.serverPort = serverPort;
     }
 
+    public String getClientHost() {
+        return clientHost;
+    }
+
+    public void setClientHost(String clientHost) {
+        this.clientHost = clientHost;
+    }
+
     public Integer getClientPort() {
         return clientPort;
     }
@@ -273,6 +341,17 @@ public class AudioStreamingService {
         this.clientPort = clientPort;
     }
 
+    public Boolean isLaunched() {
+        return isLaunched;
+    }
+
+    public boolean isServerLaunched() {
+        return isServerLaunched;
+    }
+
+    public boolean isClientLaunched() {
+        return isClientLaunched;
+    }
 
     public interface AudioStreamingServiceCallback {
         void callback(String message);
@@ -298,12 +377,32 @@ public class AudioStreamingService {
         this.audioServiceCallbackPlayingFinished = audioServiceCallbackPlayingFinished;
     }
 
-    public void setAudioStreamingServiceReceivingFailed(AudioStreamingServiceCallback audioStreamingServiceReceivingFailed) {
-        this.audioStreamingServiceReceivingFailed = audioStreamingServiceReceivingFailed;
+    public void setAudioStreamingCallbackServiceListeningSuccessful(AudioStreamingServiceCallback audioStreamingCallbackServiceListeningSuccessful) {
+        this.audioStreamingCallbackServiceListeningSuccessful = audioStreamingCallbackServiceListeningSuccessful;
     }
 
-    public void setAudioStreamingServiceSendingFailed(AudioStreamingServiceCallback audioStreamingServiceSendingFailed) {
-        this.audioStreamingServiceSendingFailed = audioStreamingServiceSendingFailed;
+    public void setAudioStreamingCallbackServiceSendingSuccessful(AudioStreamingServiceCallback audioStreamingCallbackServiceSendingSuccessful) {
+        this.audioStreamingCallbackServiceSendingSuccessful = audioStreamingCallbackServiceSendingSuccessful;
+    }
+
+    public void setAudioStreamingCallbackServiceReceivingFailed(AudioStreamingServiceCallback audioStreamingCallbackServiceReceivingFailed) {
+        this.audioStreamingCallbackServiceReceivingFailed = audioStreamingCallbackServiceReceivingFailed;
+    }
+
+    public void setAudioStreamingCallbackServiceSendingFailed(AudioStreamingServiceCallback audioStreamingCallbackServiceSendingFailed) {
+        this.audioStreamingCallbackServiceSendingFailed = audioStreamingCallbackServiceSendingFailed;
+    }
+
+    public void setAudioStreamingCallbackServiceServerFinishedSuccessfully(AudioStreamingServiceCallback audioStreamingCallbackServiceServerFinishedSuccessfully) {
+        this.audioStreamingCallbackServiceServerFinishedSuccessfully = audioStreamingCallbackServiceServerFinishedSuccessfully;
+    }
+
+    public void setAudioStreamingCallbackServiceClientFinishedSuccessfully(AudioStreamingServiceCallback audioStreamingCallbackServiceClientFinishedSuccessfully) {
+        this.audioStreamingCallbackServiceClientFinishedSuccessfully = audioStreamingCallbackServiceClientFinishedSuccessfully;
+    }
+
+    public void setAudioStreamingCallbackServiceFullyFinishedSuccessfully(AudioStreamingServiceCallback audioStreamingCallbackServiceFullyFinishedSuccessfully) {
+        this.audioStreamingCallbackServiceFullyFinishedSuccessfully = audioStreamingCallbackServiceFullyFinishedSuccessfully;
     }
 
 

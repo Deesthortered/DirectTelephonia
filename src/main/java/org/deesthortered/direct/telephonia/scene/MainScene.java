@@ -54,9 +54,12 @@ public class MainScene extends AbstractScene {
     // Audio panel
     private RadioButton radioAudioAutomatic;
     private RadioButton radioAudioManual;
-    private TextField fieldAudioHost;
-    private TextField fieldAudioPort;
-    private Button buttonAudioStartStop;
+    private TextField fieldServerAudioHost;
+    private TextField fieldServerAudioPort;
+    private TextField fieldClientAudioHost;
+    private TextField fieldClientAudioPort;
+    private Button buttonAudioStartStopServer;
+    private Button buttonAudioStartStopClient;
 
     // Video panel
     private final String mediaImagePath = "src/main/resources/default_image.jpg";
@@ -126,6 +129,16 @@ public class MainScene extends AbstractScene {
     private Pane createRoleChooserPanel() {
         Label labelHello = new Label("Welcome to the Direct Telephonia!");
 
+        VBox roleChooserPanelPane = new VBox();
+        roleChooserPanelPane.getChildren().addAll(labelHello);
+        roleChooserPanelPane.setAlignment(Pos.CENTER);
+        return roleChooserPanelPane;
+    }
+
+    private Pane createMessageConfigurationPanel() {
+        Label labelTitle = new Label("Message service info:");
+
+        // Choose role
         Label labelChooseRole = new Label("Choose the role: ");
         ToggleGroup groupChooseRole = new ToggleGroup();
 
@@ -137,17 +150,11 @@ public class MainScene extends AbstractScene {
         radioRoleClient.setToggleGroup(groupChooseRole);
         radioRoleClient.setOnAction(this::handle);
 
-        HBox paneChooseRole = new HBox();
-        paneChooseRole.getChildren().addAll(labelChooseRole, radioRoleServer, radioRoleClient);
+        HBox radioBox = new HBox();
+        radioBox.getChildren().addAll(radioRoleServer, radioRoleClient);
 
-        VBox roleChooserPanelPane = new VBox();
-        roleChooserPanelPane.getChildren().addAll(labelHello, paneChooseRole);
-        roleChooserPanelPane.setAlignment(Pos.CENTER);
-        return roleChooserPanelPane;
-    }
-
-    private Pane createMessageConfigurationPanel() {
-        Label labelTitle = new Label("Message service info:");
+        VBox paneChooseRole = new VBox();
+        paneChooseRole.getChildren().addAll(labelChooseRole, radioBox);
 
         // Define host/port
         Label labelRadioAutomaticManual = new Label("Define host/port:");
@@ -176,13 +183,11 @@ public class MainScene extends AbstractScene {
         // Server info
         Label labelHost = new Label("Host: ");
         fieldMessagingHost = new TextField();
-        fieldMessagingHost.setText(this.messageService.getServerHost());
         HBox paneHost = new HBox();
         paneHost.getChildren().addAll(labelHost, fieldMessagingHost);
 
         Label labelPort = new Label("Port:  ");
         fieldMessagingPort = new TextField();
-        fieldMessagingPort.setText(String.valueOf(this.messageService.getServerPort()));
         HBox panePort = new HBox();
         panePort.getChildren().addAll(labelPort, fieldMessagingPort);
 
@@ -197,6 +202,7 @@ public class MainScene extends AbstractScene {
         VBox panePropertyPanel = new VBox();
         panePropertyPanel.getChildren().addAll(
                 labelTitle,
+                paneChooseRole,
                 boxAutomaticManual,
                 paneServerInfo,
                 buttonMessagingStartStop
@@ -231,27 +237,41 @@ public class MainScene extends AbstractScene {
                 boxRadioAutomaticManual
         );
 
-        HBox boxAudioHost = new HBox();
-        Label labelAudioHost = new Label("Host: ");
-        this.fieldAudioHost = new TextField();
-        boxAudioHost.getChildren().addAll(labelAudioHost, this.fieldAudioHost);
+        HBox boxAudioServerHost = new HBox();
+        Label labelAudioServerHost = new Label("Server host: ");
+        this.fieldServerAudioHost = new TextField();
+        boxAudioServerHost.getChildren().addAll(labelAudioServerHost, this.fieldServerAudioHost);
 
-        HBox boxAudioPort = new HBox();
-        Label labelAudioPort = new Label("Port:  ");
-        this.fieldAudioPort = new TextField();
-        boxAudioPort.getChildren().addAll(labelAudioPort, this.fieldAudioPort);
+        HBox boxAudioServerPort = new HBox();
+        Label labelAudioServerPort = new Label("Server port:  ");
+        this.fieldServerAudioPort = new TextField();
+        boxAudioServerPort.getChildren().addAll(labelAudioServerPort, this.fieldServerAudioPort);
 
+        HBox boxAudioClientHost = new HBox();
+        Label labelAudioClientHost = new Label("Client host: ");
+        this.fieldClientAudioHost = new TextField();
+        boxAudioClientHost.getChildren().addAll(labelAudioClientHost, this.fieldClientAudioHost);
 
-        this.buttonAudioStartStop = new Button();
+        HBox boxAudioClientPort = new HBox();
+        Label labelAudioClientPort = new Label("Client port:  ");
+        this.fieldClientAudioPort = new TextField();
+        boxAudioClientPort.getChildren().addAll(labelAudioClientPort, this.fieldClientAudioPort);
 
+        this.buttonAudioStartStopServer = new Button();
+        this.buttonAudioStartStopServer.setOnAction(this::handle);
+        this.buttonAudioStartStopClient = new Button();
+        this.buttonAudioStartStopClient.setOnAction(this::handle);
 
         VBox paneAudioPanel = new VBox();
         paneAudioPanel.getChildren().addAll(
                 labelTitle,
                 boxAutomaticManual,
-                boxAudioHost,
-                boxAudioPort,
-                this.buttonAudioStartStop
+                boxAudioServerHost,
+                boxAudioServerPort,
+                boxAudioClientHost,
+                boxAudioClientPort,
+                this.buttonAudioStartStopServer,
+                this.buttonAudioStartStopClient
         );
         return paneAudioPanel;
     }
@@ -327,11 +347,20 @@ public class MainScene extends AbstractScene {
 
         radioMessagingAutomatic.setSelected(false);
         radioMessagingManual.setSelected(true);
+        fieldMessagingHost.setText(this.messageService.getServerHost());
+        fieldMessagingPort.setText(String.valueOf(this.messageService.getServerPort()));
+
         buttonMessagingStartStop.setText("Start server");
 
         radioAudioAutomatic.setSelected(false);
         radioAudioManual.setSelected(true);
-        buttonAudioStartStop.setText("Start server");
+        fieldServerAudioHost.setText(this.audioStreamingService.getServerHost());
+        fieldServerAudioPort.setText(String.valueOf(this.audioStreamingService.getServerPort()));
+        fieldClientAudioHost.setText(this.audioStreamingService.getClientHost());
+        fieldClientAudioPort.setText(String.valueOf(this.audioStreamingService.getClientPort()));
+        buttonAudioStartStopServer.setText("Start server");
+        buttonAudioStartStopClient.setText("Connect");
+        buttonAudioStartStopClient.setDisable(true);
 
         fieldMessage.setDisable(true);
         buttonSendMessage.setDisable(true);
@@ -369,10 +398,20 @@ public class MainScene extends AbstractScene {
                 Platform.runLater(() -> callbackAudioServicePlayingStopped()));
         this.audioStreamingService.setAudioServiceCallbackPlayingFinished(message ->
                 Platform.runLater(() -> callbackAudioServicePlayingFinished()));
-        this.audioStreamingService.setAudioStreamingServiceSendingFailed(message ->
+        this.audioStreamingService.setAudioStreamingCallbackServiceListeningSuccessful(message ->
+                Platform.runLater(() -> callbackAudioStreamingCallbackServiceListeningSuccessful()));
+        this.audioStreamingService.setAudioStreamingCallbackServiceSendingSuccessful(message ->
+                Platform.runLater(() -> callbackAudioStreamingCallbackServiceSendingSuccessful()));
+        this.audioStreamingService.setAudioStreamingCallbackServiceSendingFailed(message ->
                 Platform.runLater(() -> callbackAudioStreamingServiceSendingFailed(message)));
-        this.audioStreamingService.setAudioStreamingServiceReceivingFailed(message ->
+        this.audioStreamingService.setAudioStreamingCallbackServiceReceivingFailed(message ->
                 Platform.runLater(() -> callbackAudioStreamingServiceReceivingFailed(message)));
+        this.audioStreamingService.setAudioStreamingCallbackServiceServerFinishedSuccessfully(message ->
+                Platform.runLater(() -> callbackAudioStreamingCallbackServiceServerFinishedSuccessfully()));
+        this.audioStreamingService.setAudioStreamingCallbackServiceClientFinishedSuccessfully(message ->
+                Platform.runLater(() -> callbackAudioStreamingCallbackServiceClientFinishedSuccessfully()));
+        this.audioStreamingService.setAudioStreamingCallbackServiceFullyFinishedSuccessfully(message ->
+                Platform.runLater(() -> callbackAudioStreamingCallbackServiceFullyFinishedSuccessfully()));
     }
 
     private void callbackListeningSuccess() {
@@ -399,8 +438,10 @@ public class MainScene extends AbstractScene {
 
         if (!"Socket closed".equals(message)) {
             this.exceptionService.createPopupAlert(new CustomException(message));
+            showOnStateLabel("Message server has been forced shutdown.");
+        } else {
+            showOnStateLabel("Message server listening is stopped. Now you can start again.");
         }
-        showOnStateLabel("Server has been forced shutdown.");
     }
 
     private void callbackListeningFinish() {
@@ -516,14 +557,62 @@ public class MainScene extends AbstractScene {
 
     }
 
+    private void callbackAudioStreamingCallbackServiceListeningSuccessful() {
+        this.buttonAudioStartStopClient.setDisable(false);
+        this.fieldServerAudioHost.setText(this.audioStreamingService.getServerHost());
+        this.fieldServerAudioPort.setText(String.valueOf(this.audioStreamingService.getServerPort()));
+
+        showOnStateLabel("Audio server is listening...");
+    }
+
+    private void callbackAudioStreamingCallbackServiceSendingSuccessful() {
+        showOnStateLabel("Audio client connection is created (first packet is sent)...");
+    }
+
     private void callbackAudioStreamingServiceSendingFailed(String message) {
+        this.fieldClientAudioHost.setDisable(false);
+        this.fieldClientAudioPort.setDisable(false);
+
+        this.buttonAudioStartStopServer.setDisable(false);
+        this.buttonAudioStartStopClient.setText("Connect");
+
         this.exceptionService.createPopupAlert(new CustomException(message));
-        showOnStateLabel("AudioStreamingServiceSendingFailed: " + message);
+        showOnStateLabel("Audio client has been forced shutdown: " + message);
     }
 
     private void callbackAudioStreamingServiceReceivingFailed(String message) {
-        this.exceptionService.createPopupAlert(new CustomException(message));
-        showOnStateLabel("AudioStreamingServiceReceivingFailed: " + message);
+        if (!"Socket closed".equals(message)) {
+            this.exceptionService.createPopupAlert(new CustomException(message));
+            showOnStateLabel("Audio server has been forced shutdown.");
+        } else {
+            showOnStateLabel("Audio server listening is stopped. Now you can start again.");
+        }
+    }
+
+    private void callbackAudioStreamingCallbackServiceServerFinishedSuccessfully() {
+    }
+
+    private void callbackAudioStreamingCallbackServiceClientFinishedSuccessfully() {
+    }
+
+    private void callbackAudioStreamingCallbackServiceFullyFinishedSuccessfully() {
+        if (this.radioAudioManual.isSelected()) {
+            this.fieldServerAudioHost.setDisable(false);
+            this.fieldServerAudioPort.setDisable(false);
+        } else {
+            this.fieldServerAudioHost.setText("automatically");
+            this.fieldServerAudioPort.setText("automatically");
+        }
+        this.fieldClientAudioHost.setDisable(false);
+        this.fieldClientAudioPort.setDisable(false);
+
+        this.buttonAudioStartStopServer.setText("Start server");
+        this.buttonAudioStartStopServer.setDisable(false);
+
+        this.buttonAudioStartStopClient.setText("Connect");
+        this.buttonAudioStartStopClient.setDisable(true);
+
+        showOnStateLabel("Connection is closed. Now you can connect again!");
     }
     //////////////////////////
 
@@ -559,8 +648,18 @@ public class MainScene extends AbstractScene {
                 handleAudioRadioAutomatic();
             } else if (source == radioAudioManual) {
                 handleAudioRadioManual();
-            } else if (source == buttonAudioStartStop) {
-
+            } else if (source == buttonAudioStartStopServer) {
+                if (this.audioStreamingService.isServerLaunched()) {
+                    handleAudioButtonStopServer();
+                } else {
+                    handleAudioButtonStartServer();
+                }
+            } else if (source == buttonAudioStartStopClient) {
+                if (this.audioStreamingService.isClientLaunched()) {
+                    handleAudioButtonStopClient();
+                } else {
+                    handleAudioButtonConnectToServer();
+                }
             }
         } catch (CustomException e) {
             exceptionService.createPopupAlert(e);
@@ -581,39 +680,23 @@ public class MainScene extends AbstractScene {
 
     private void handleRadioRoleServer() {
         buttonMessagingStartStop.setText("Start server");
-        buttonAudioStartStop.setText("Start server");
 
-        radioAudioAutomatic.setDisable(false);
-        radioAudioManual.setDisable(false);
         radioMessagingAutomatic.setDisable(false);
         radioMessagingManual.setDisable(false);
     }
 
     private void handleRadioRoleClient() {
         buttonMessagingStartStop.setText("Connect");
-        buttonAudioStartStop.setText("Connect");
-
-        radioAudioAutomatic.setDisable(true);
-        radioAudioManual.setDisable(true);
         radioMessagingAutomatic.setDisable(true);
         radioMessagingManual.setDisable(true);
-        fieldAudioHost.setDisable(false);
-        fieldAudioPort.setDisable(false);
 
         radioMessagingAutomatic.setSelected(false);
-        radioAudioAutomatic.setSelected(false);
         radioMessagingManual.setSelected(true);
-        radioAudioManual.setSelected(true);
         fieldMessagingHost.setDisable(false);
         fieldMessagingPort.setDisable(false);
 
         fieldMessagingHost.setText(this.messageService.getServerHost());
         fieldMessagingPort.setText(String.valueOf(this.messageService.getServerPort()));
-        fieldAudioHost.setText(this.audioStreamingService.getHost());
-        fieldAudioPort.setText(String.valueOf(
-                radioRoleServer.isSelected() ?
-                        this.audioStreamingService.getServerPort() :
-                        this.audioStreamingService.getClientPort()));
     }
 
     private void handleMessagingRadioMessagingAutomatic() {
@@ -684,20 +767,52 @@ public class MainScene extends AbstractScene {
     }
 
     private void handleAudioRadioAutomatic() {
-        fieldAudioHost.setText("automatically...");
-        fieldAudioPort.setText("automatically...");
-        fieldAudioHost.setDisable(true);
-        fieldAudioPort.setDisable(true);
+        fieldServerAudioHost.setText("automatically...");
+        fieldServerAudioPort.setText("automatically...");
+        fieldServerAudioHost.setDisable(true);
+        fieldServerAudioPort.setDisable(true);
     }
 
     private void handleAudioRadioManual() {
-        fieldAudioHost.setText(this.audioStreamingService.getHost());
-        fieldAudioPort.setText(String.valueOf(
+        fieldServerAudioHost.setText(this.audioStreamingService.getServerHost());
+        fieldServerAudioPort.setText(String.valueOf(
                         radioRoleServer.isSelected() ?
                         this.audioStreamingService.getServerPort() :
                         this.audioStreamingService.getClientPort()));
-        fieldAudioHost.setDisable(false);
-        fieldAudioPort.setDisable(false);
+        fieldServerAudioHost.setDisable(false);
+        fieldServerAudioPort.setDisable(false);
+    }
+
+    private void handleAudioButtonStartServer() throws CustomException {
+        this.fieldServerAudioHost.setDisable(true);
+        this.fieldServerAudioPort.setDisable(true);
+        this.buttonAudioStartStopServer.setText("Stop server");
+
+        if (this.radioAudioManual.isSelected()) {
+            this.audioStreamingService.setServerHost(this.fieldServerAudioHost.getText());
+            this.audioStreamingService.setServerPort(Integer.valueOf(this.fieldServerAudioPort.getText()));
+        }
+        this.audioStreamingService.startServer(this.radioAudioAutomatic.isSelected());
+    }
+
+    private void handleAudioButtonConnectToServer() throws CustomException {
+        this.fieldClientAudioHost.setDisable(true);
+        this.fieldClientAudioPort.setDisable(true);
+
+        this.buttonAudioStartStopServer.setDisable(true);
+        this.buttonAudioStartStopClient.setText("Stop connection");
+
+        this.audioStreamingService.setClientHost(this.fieldClientAudioHost.getText());
+        this.audioStreamingService.setClientPort(Integer.valueOf(this.fieldClientAudioPort.getText()));
+        this.audioStreamingService.connectToServer();
+    }
+
+    private void handleAudioButtonStopServer() throws CustomException {
+        this.audioStreamingService.stopService();
+    }
+
+    private void handleAudioButtonStopClient() throws CustomException {
+        this.audioStreamingService.stopService();
     }
 
     private synchronized void showOnStateLabel(String message) {

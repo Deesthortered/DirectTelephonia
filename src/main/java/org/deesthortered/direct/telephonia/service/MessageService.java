@@ -125,9 +125,13 @@ public class MessageService {
     private Callable<Void> getServerListeningThread() {
         return () -> {
             try {
-                this.serverSocket = new ServerSocket(this.isAutoDefineNetworkData ? 0 : this.serverPort);
-                this.serverHost = this.serverSocket.getInetAddress().getHostAddress();
-                this.serverPort = this.serverSocket.getLocalPort();
+                if (isAutoDefineNetworkData) {
+                    this.serverSocket = new ServerSocket(0);
+                    this.serverHost = this.serverSocket.getInetAddress().getHostAddress();
+                    this.serverPort = this.serverSocket.getLocalPort();
+                } else {
+                    this.serverSocket = new ServerSocket(this.serverPort);
+                }
 
                 this.listeningCallbackSuccess.handleMessage("");
                 this.clientSocket = serverSocket.accept();
