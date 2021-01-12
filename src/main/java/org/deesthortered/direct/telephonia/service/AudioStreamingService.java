@@ -156,6 +156,9 @@ public class AudioStreamingService {
                     byte[] buffer = new byte[maxPacketSize];
                     DatagramPacket response = new DatagramPacket(buffer, buffer.length);
                     serverSocket.receive(response);
+
+                    System.out.println("Received: " + response.getAddress() + ", " + response.getLength() + ": " + Arrays.toString(response.getData()));
+
                     serverReceivedPackets.add(convertArrayToList(buffer));
                     if (!firstPacketHere) {
                         firstPacketHere = true;
@@ -163,7 +166,7 @@ public class AudioStreamingService {
                     }
                 }
             } catch (Exception e) {
-                if (!e.getMessage().equals("Socket closed")) {
+                if (!e.getMessage().equalsIgnoreCase("socket closed")) {
                     e.printStackTrace();
                 }
                 isFailed = true;
@@ -206,6 +209,9 @@ public class AudioStreamingService {
                         byte[] buffer = convertListToArray(this.clientSendingPackets.poll());
                         DatagramPacket request = new DatagramPacket(buffer, buffer.length, address, clientPort);
                         clientSocket.send(request);
+
+                        System.out.println("Sent: " + request.getAddress() + ", " + request.getLength() + ": " + Arrays.toString(request.getData()));
+
                         if (!firstPacketSent) {
                             firstPacketSent = true;
                             audioStreamingCallbackServiceSendingSuccessful.callback("");
@@ -264,6 +270,8 @@ public class AudioStreamingService {
                         }
                     }
                 }
+
+                System.out.println("Read: " + bytesCount + ": " + Arrays.toString(whereToWrite));
                 return i;
             }
         };
@@ -288,6 +296,7 @@ public class AudioStreamingService {
                         clientSendingPackets.add(convertArrayToList(buffer));
                     }
                 }
+                System.out.println("Wrote: " + data.length + ": " + Arrays.toString(data));
             }
         };
     }
@@ -358,23 +367,41 @@ public class AudioStreamingService {
     }
 
     public void setAudioServiceCallbackRecordingFailed(
-            AudioServiceCallback audioServiceCallbackRecordingFailed) {
-        this.audioServiceCallbackRecordingFailed = audioServiceCallbackRecordingFailed;
+            AudioServiceCallback uiAudioServiceCallbackRecordingFailed) {
+        this.audioServiceCallbackRecordingFailed = (message) -> {
+            try {
+                stopService();
+            } catch (CustomException e) {
+                e.printStackTrace();
+            }
+            uiAudioServiceCallbackRecordingFailed.callback(message);
+        };;
     }
 
     public void setAudioServiceCallbackPlayingFailed(
-            AudioServiceCallback audioServiceCallbackPlayingFailed) {
-        this.audioServiceCallbackPlayingFailed = audioServiceCallbackPlayingFailed;
+            AudioServiceCallback uiAudioServiceCallbackPlayingFailed) {
+        this.audioServiceCallbackPlayingFailed = (message) -> {
+            try {
+                stopService();
+            } catch (CustomException e) {
+                e.printStackTrace();
+            }
+            uiAudioServiceCallbackPlayingFailed.callback(message);
+        };;
     }
 
     public void setAudioServiceCallbackPlayingStopped(
-            AudioServiceCallback audioServiceCallbackPlayingStopped) {
-        this.audioServiceCallbackPlayingStopped = audioServiceCallbackPlayingStopped;
+            AudioServiceCallback uiAudioServiceCallbackPlayingStopped) {
+        this.audioServiceCallbackPlayingStopped = (message) -> {
+            uiAudioServiceCallbackPlayingStopped.callback(message);
+        };;
     }
 
     public void setAudioServiceCallbackPlayingFinished(
-            AudioServiceCallback audioServiceCallbackPlayingFinished) {
-        this.audioServiceCallbackPlayingFinished = audioServiceCallbackPlayingFinished;
+            AudioServiceCallback uiAudioServiceCallbackPlayingFinished) {
+        this.audioServiceCallbackPlayingFinished = (message) -> {
+            uiAudioServiceCallbackPlayingFinished.callback(message);
+        };
     }
 
     public void setAudioStreamingCallbackServiceListeningSuccessful(AudioStreamingServiceCallback audioStreamingCallbackServiceListeningSuccessful) {

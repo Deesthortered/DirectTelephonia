@@ -436,7 +436,7 @@ public class MainScene extends AbstractScene {
         this.buttonMessagingStartStop.setDisable(false);
         this.buttonMessagingStartStop.setText("Start server...");
 
-        if (!"Socket closed".equals(message)) {
+        if (!"Socket closed".equalsIgnoreCase(message)) {
             this.exceptionService.createPopupAlert(new CustomException(message));
             showOnStateLabel("Message server has been forced shutdown.");
         } else {
@@ -581,7 +581,7 @@ public class MainScene extends AbstractScene {
     }
 
     private void callbackAudioStreamingServiceReceivingFailed(String message) {
-        if (!"Socket closed".equals(message)) {
+        if (!"Socket closed".equalsIgnoreCase(message)) {
             this.exceptionService.createPopupAlert(new CustomException(message));
             showOnStateLabel("Audio server has been forced shutdown.");
         } else {
