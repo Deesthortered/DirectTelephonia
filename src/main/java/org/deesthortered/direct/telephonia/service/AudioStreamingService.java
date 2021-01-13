@@ -26,13 +26,13 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class AudioStreamingService {
 
-    private static final Integer maxPacketSize = 16; // 65507 - 1432 - 508
+    private static final Integer maxPacketSize = (16+1)*4; // 65507 - 1432 - 508
 
-    @Value("${audio.host}")
+    @Value("${audio.server.host}")
     private volatile String serverHost;
     @Value("${audio.server.port}")
     private volatile Integer serverPort;
-    @Value("${audio.host}")
+    @Value("${audio.client.host}")
     private volatile String clientHost;
     @Value("${audio.client.port}")
     private volatile Integer clientPort;
@@ -48,7 +48,6 @@ public class AudioStreamingService {
 
     private volatile boolean isAutoDefineNetworkData;
     private volatile boolean isLaunched;
-    private volatile boolean isServiceInitialized;
     private volatile boolean isServerLaunched;
     private volatile boolean isClientLaunched;
     private final ReentrantLock lockLaunched;
@@ -72,7 +71,6 @@ public class AudioStreamingService {
         this.clientSendingPackets = new ConcurrentLinkedQueue<>();
 
         this.isLaunched = false;
-        this.isServiceInitialized = false;
         this.isServerLaunched = false;
         this.isClientLaunched = false;
         this.lockLaunched = new ReentrantLock();
@@ -87,16 +85,13 @@ public class AudioStreamingService {
             throw new CustomException("The audio service server is started!");
         }
 
-        if (!this.isServiceInitialized) {
-            audioServiceReproducer.initializeService(
-                    audioServiceCallbackPlayingFailed,
-                    audioServiceCallbackPlayingStopped,
-                    audioServiceCallbackPlayingFinished);
-            audioServiceReceiver.initializeService(audioServiceCallbackRecordingFailed);
-            this.audioServiceReceiver.addFilter(AudioStreamingService.getCypheringFilter());
-            this.audioServiceReproducer.addFilter(AudioStreamingService.getCypheringFilter());
-            this.isServiceInitialized = true;
-        }
+        audioServiceReproducer.initializeService(
+                audioServiceCallbackPlayingFailed,
+                audioServiceCallbackPlayingStopped,
+                audioServiceCallbackPlayingFinished);
+        audioServiceReceiver.initializeService(audioServiceCallbackRecordingFailed);
+        this.audioServiceReceiver.addFilter(AudioStreamingService.getCypheringFilter());
+        this.audioServiceReproducer.addFilter(AudioStreamingService.getCypheringFilter());
 
         this.isAutoDefineNetworkData = autoDefineNetworkData;
 
@@ -157,8 +152,7 @@ public class AudioStreamingService {
                     DatagramPacket response = new DatagramPacket(buffer, buffer.length);
                     serverSocket.receive(response);
 
-                    System.out.println("Received: " + response.getAddress() + ", " + response.getLength() + ": " + Arrays.toString(response.getData()));
-
+                    // TODO: implement overload protection
                     serverReceivedPackets.add(convertArrayToList(buffer));
                     if (!firstPacketHere) {
                         firstPacketHere = true;
@@ -174,6 +168,7 @@ public class AudioStreamingService {
             } finally {
                 this.audioServiceReproducer.stopPlayingRecord();
                 this.audioServiceReproducer.close();
+                this.serverReceivedPackets.clear();
                 if (this.serverSocket != null && !this.serverSocket.isClosed()) {
                     this.serverSocket.close();
                 }
@@ -206,11 +201,10 @@ public class AudioStreamingService {
                 this.audioServiceReceiver.startRecording();
                 while (!this.clientThread.isInterrupted()) {
                     while (!this.clientSendingPackets.isEmpty()) {
+                        // TODO: implement overload protection
                         byte[] buffer = convertListToArray(this.clientSendingPackets.poll());
                         DatagramPacket request = new DatagramPacket(buffer, buffer.length, address, clientPort);
                         clientSocket.send(request);
-
-                        System.out.println("Sent: " + request.getAddress() + ", " + request.getLength() + ": " + Arrays.toString(request.getData()));
 
                         if (!firstPacketSent) {
                             firstPacketSent = true;
@@ -262,16 +256,15 @@ public class AudioStreamingService {
                     currentByte += i;
                     if (currentByte == buffer.length) {
                         currentByte = 0;
+
+                        // TODO: implement gap resolver (smooth, not hard)
                         if (serverReceivedPackets.isEmpty()) {
                             Arrays.fill(buffer, (byte) 0);
-                            System.out.println("No packets to reproduce!!!");
                         } else {
                             buffer = convertListToArray(serverReceivedPackets.poll());
                         }
                     }
                 }
-
-                System.out.println("Read: " + bytesCount + ": " + Arrays.toString(whereToWrite));
                 return i;
             }
         };
@@ -296,7 +289,6 @@ public class AudioStreamingService {
                         clientSendingPackets.add(convertArrayToList(buffer));
                     }
                 }
-                System.out.println("Wrote: " + data.length + ": " + Arrays.toString(data));
             }
         };
     }

@@ -24,8 +24,8 @@ import java.util.List;
 @Component
 public class MainScene extends AbstractScene {
     public static String beanName = "mainScene";
-    private final int windowWidth = 1200;
-    private final int windowHeight = 800;
+    private final int windowWidth = 1000;
+    private final int windowHeight = 700;
 
     private final ExceptionService exceptionService;
     private final MessageService messageService;
