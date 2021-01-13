@@ -1,5 +1,7 @@
 package org.deesthortered.direct.telephonia.service;
 
+import org.apache.commons.collections4.QueueUtils;
+import org.apache.commons.collections4.queue.CircularFifoQueue;
 import org.apache.commons.lang3.ArrayUtils;
 import org.deesthortered.direct.telephonia.scene.exception.CustomException;
 import org.deesthortered.direct.telephonia.service.audioservice.AudioServiceReceiver;
@@ -18,6 +20,7 @@ import java.net.InetAddress;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.FutureTask;
@@ -26,7 +29,9 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class AudioStreamingService {
 
-    private static final Integer maxPacketSize = (16+1)*4; // 65507 - 1432 - 508
+    private static final int maxPacketSize = (16+1)*4; // 65507 - 1432 - 508
+    private static final int queueMaxSizeForReceivingPackets = 3;
+    private static final int queueMaxSizeForSendingPackets = 3;
 
     @Value("${audio.server.host}")
     private volatile String serverHost;
@@ -43,8 +48,9 @@ public class AudioStreamingService {
     private volatile Thread clientThread;
     private volatile DatagramSocket serverSocket;
     private volatile DatagramSocket clientSocket;
-    private final ConcurrentLinkedQueue<List<Byte>> serverReceivedPackets;
-    private final ConcurrentLinkedQueue<List<Byte>> clientSendingPackets;
+
+    private final Queue<List<Byte>> serverReceivedPackets;
+    private final Queue<List<Byte>> clientSendingPackets;
 
     private volatile boolean isAutoDefineNetworkData;
     private volatile boolean isLaunched;
@@ -67,8 +73,8 @@ public class AudioStreamingService {
 
     public AudioStreamingService(AudioServiceReceiver audioServiceReceiver,
                                  AudioServiceReproducer audioServiceReproducer) {
-        this.serverReceivedPackets = new ConcurrentLinkedQueue<>();
-        this.clientSendingPackets = new ConcurrentLinkedQueue<>();
+        this.serverReceivedPackets = QueueUtils.synchronizedQueue(new CircularFifoQueue<>(queueMaxSizeForReceivingPackets));
+        this.clientSendingPackets = QueueUtils.synchronizedQueue(new CircularFifoQueue<>(queueMaxSizeForSendingPackets));
 
         this.isLaunched = false;
         this.isServerLaunched = false;
@@ -152,7 +158,6 @@ public class AudioStreamingService {
                     DatagramPacket response = new DatagramPacket(buffer, buffer.length);
                     serverSocket.receive(response);
 
-                    // TODO: implement overload protection
                     serverReceivedPackets.add(convertArrayToList(buffer));
                     if (!firstPacketHere) {
                         firstPacketHere = true;
@@ -201,7 +206,6 @@ public class AudioStreamingService {
                 this.audioServiceReceiver.startRecording();
                 while (!this.clientThread.isInterrupted()) {
                     while (!this.clientSendingPackets.isEmpty()) {
-                        // TODO: implement overload protection
                         byte[] buffer = convertListToArray(this.clientSendingPackets.poll());
                         DatagramPacket request = new DatagramPacket(buffer, buffer.length, address, clientPort);
                         clientSocket.send(request);
